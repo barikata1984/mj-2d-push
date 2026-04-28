@@ -40,11 +40,15 @@ cd my-new-project/
 
 ### 3. 環境変数を設定
 
-```bash
-cp docker/.env.example docker/.env
-```
+UID/GID は初回起動時に `docker/init-env.sh` が `id -u`/`id -g` をもとに `docker/.env` を自動生成する。
 
-`docker/.env` を編集して CUDA バージョンや UID/GID を自分のマシンに合わせる。
+- **VS Code (devcontainer)**: 自動。`devcontainer.json` の `initializeCommand` がスクリプトを呼ぶ
+- **CLI (standalone)**: 起動前に1度だけ手動実行
+  ```bash
+  bash docker/init-env.sh
+  ```
+
+CUDA バージョンや DISPLAY 等を上書きしたい場合は、生成された `docker/.env` に追記する (項目は `docker/.env.example` を参照)。`docker/.env` は git 管理外なので、UID/GID をリセットしたい場合はファイルを削除すれば次回起動時に再生成される。
 
 ### 4. プロジェクト固有の依存を追加
 

@@ -24,8 +24,8 @@ services:
       dockerfile: Dockerfile
       args:
         CUDA_VERSION: ${CUDA_VERSION:-12.8.0}
-        HOST_UID: ${HOST_UID:-1000}
-        HOST_GID: ${HOST_GID:-1000}
+        HOST_UID: ${HOST_UID:?run "bash docker/init-env.sh" first to generate docker/.env}
+        HOST_GID: ${HOST_GID:?run "bash docker/init-env.sh" first to generate docker/.env}
         HOST_USER: ${USER:-developer}
     image: my-project:latest  # TODO: rename to your image name
 

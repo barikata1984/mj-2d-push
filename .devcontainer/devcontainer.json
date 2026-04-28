@@ -87,6 +87,10 @@
     }
   },
 
+  // Runs on the host before the container starts.
+  // Generates docker/.env from the host's UID/GID if absent (idempotent).
+  "initializeCommand": ["bash", "docker/init-env.sh"],
+
   "postCreateCommand": "echo '=== Dev container ready ===' && python --version",
 
   "shutdownAction": "none"

@@ -87,8 +87,8 @@ RUN if getent group ${HOST_GID} >/dev/null 2>&1; then \
          useradd -m -s /bin/zsh -u ${HOST_UID} -g ${HOST_GID} ${HOST_USER}; \
        fi \
     && echo "${HOST_USER} ALL=(ALL) NOPASSWD:ALL" \
-       >> /etc/sudoers.d/${HOST_USER} \
-    && chmod 0440 /etc/sudoers.d/${HOST_USER}
+       > /etc/sudoers.d/container-user \
+    && chmod 0440 /etc/sudoers.d/container-user
 
 # ---- Entrypoint -------------------------------------------------------------
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

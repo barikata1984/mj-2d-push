@@ -55,6 +55,9 @@ if [ -f /workspace/pyproject.toml ]; then
 fi
 
 # ---- Drop to non-root user and exec command ---------------------------------
+# Doppler secrets are fetched per-shell via /etc/zsh/zshenv (installed by the
+# Dockerfile). That ensures `docker compose exec` shells also receive secrets,
+# which env vars exported here would not reach.
 if [ "$(id -u)" = "0" ] && [ "${TARGET_USER}" != "root" ]; then
     exec gosu "${TARGET_USER}" "$@"
 else

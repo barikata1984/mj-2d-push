@@ -68,6 +68,27 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
+# ---- Doppler CLI (fetches secrets per-shell via /etc/zsh/zshenv below) -----
+RUN curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh \
+        | sh -s -- --no-package-manager \
+    && doppler --version
+
+# /etc/zsh/zshenv is sourced by every zsh invocation (login, non-login,
+# interactive, non-interactive — including `docker compose exec dev zsh`).
+# This is the only reliable way to get secrets into exec'd shells, since
+# entrypoint-set env vars do not propagate through `docker exec`.
+RUN mkdir -p /etc/zsh && cat >> /etc/zsh/zshenv <<'EOF'
+
+# Doppler: fetch secrets when DOPPLER_TOKEN is set in the container env.
+# Silently no-op when token is missing or fetch fails.
+if [ -n "${DOPPLER_TOKEN:-}" ] && command -v doppler >/dev/null 2>&1; then
+    if _doppler_env="$(doppler secrets download --no-file --format=env --silent 2>/dev/null)"; then
+        eval "$_doppler_env"
+    fi
+    unset _doppler_env DOPPLER_TOKEN
+fi
+EOF
+
 # ---- Non-root user (UID/GID injected at build time) ------------------------
 ARG HOST_UID=1000
 ARG HOST_GID=1000

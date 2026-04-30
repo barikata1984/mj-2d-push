@@ -35,14 +35,21 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
 
+    # Per-machine Doppler token (single file shared by all projects on this
+    # host). Loaded only by Compose at container start, not into the host shell.
+    # File contents: DOPPLER_TOKEN=dp.st.<config>.<token>
+    # Skipped silently when the file does not exist.
+    env_file:
+      - path: ${HOME}/.config/doppler.env
+        required: false
+
     volumes:
       # Project workspace (host project dir -> container /workspace)
       - ..:/workspace:cached
 
-      # Host git/ssh/auth config (read-only)
+      # Host git/ssh config (read-only). API tokens come from Doppler instead.
       - ${HOME}/.ssh:/home/${USER:-developer}/.ssh:ro
       - ${HOME}/.gitconfig:/home/${USER:-developer}/.gitconfig:ro
-      - ${HOME}/.netrc:/home/${USER:-developer}/.netrc:ro
 
       # Claude Code: share user-level config; per-container projects/todos/auth stay isolated
       - ${HOME}/.claude/CLAUDE.md:/home/${USER:-developer}/.claude/CLAUDE.md

@@ -44,6 +44,15 @@ services:
       - ${HOME}/.gitconfig:/home/${USER:-developer}/.gitconfig:ro
       - ${HOME}/.netrc:/home/${USER:-developer}/.netrc:ro
 
+      # Claude Code: share user-level config; per-container projects/todos/auth stay isolated
+      - ${HOME}/.claude/CLAUDE.md:/home/${USER:-developer}/.claude/CLAUDE.md
+      - ${HOME}/.claude/skills:/home/${USER:-developer}/.claude/skills
+      - ${HOME}/.claude/agents:/home/${USER:-developer}/.claude/agents
+      - ${HOME}/.claude/hooks:/home/${USER:-developer}/.claude/hooks
+      - ${HOME}/.claude/settings.json:/home/${USER:-developer}/.claude/settings.json
+      - ${HOME}/.claude/keybindings.json:/home/${USER:-developer}/.claude/keybindings.json
+      - ${HOME}/.claude/rules:/home/${USER:-developer}/.claude/rules
+
       # X11 / GUI forwarding
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
 

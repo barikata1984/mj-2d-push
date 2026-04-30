@@ -91,8 +91,17 @@ docker compose exec dev zsh
 | `~/.ssh` | `~/.ssh` (ro) | SSH 鍵 |
 | `~/.gitconfig` | `~/.gitconfig` (ro) | Git 設定 |
 | `~/.netrc` | `~/.netrc` (ro) | wandb 等の認証 |
+| `~/.claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | Claude Code: ユーザーレベル指示 |
+| `~/.claude/skills` | `~/.claude/skills` | Claude Code: カスタム skill |
+| `~/.claude/agents` | `~/.claude/agents` | Claude Code: サブエージェント定義 |
+| `~/.claude/hooks` | `~/.claude/hooks` | Claude Code: hook スクリプト |
+| `~/.claude/settings.json` | `~/.claude/settings.json` | Claude Code: global 設定 |
+| `~/.claude/keybindings.json` | `~/.claude/keybindings.json` | Claude Code: キーバインド |
+| `~/.claude/rules` | `~/.claude/rules` | Claude Code: CLAUDE.md から参照される個人ルール |
 | `/tmp/.X11-unix` | `/tmp/.X11-unix` | GUI 転送 |
 | named volume | `~/.cache/pip` | pip キャッシュ永続化 |
+
+> Claude Code の `projects/` (会話履歴), `todos/`, `.credentials.json` (認証), `~/.claude.json` (MCP) はコンテナ独立。コンテナで初回利用時は `claude` で再ログインが必要。
 
 ### VS Code 拡張 (14個)
 

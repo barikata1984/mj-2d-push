@@ -55,6 +55,7 @@ services:
       - ${HOME}/.claude/CLAUDE.md:/home/${USER:-developer}/.claude/CLAUDE.md
       - ${HOME}/.claude/skills:/home/${USER:-developer}/.claude/skills
       - ${HOME}/.claude/agents:/home/${USER:-developer}/.claude/agents
+      - ${HOME}/.claude/plugins:/home/${USER:-developer}/.claude/plugins
       - ${HOME}/.claude/hooks:/home/${USER:-developer}/.claude/hooks
       - ${HOME}/.claude/settings.json:/home/${USER:-developer}/.claude/settings.json
       - ${HOME}/.claude/keybindings.json:/home/${USER:-developer}/.claude/keybindings.json

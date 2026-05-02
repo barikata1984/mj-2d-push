@@ -13,8 +13,8 @@ logs/
 .DS_Store
 
 # Docker — machine-specific files (use .env.example as template)
-docker/.env
-docker/docker-compose.override.yaml
+.devcontainer/.env
+.devcontainer/docker-compose.override.yaml
 
 # Claude Code local settings
 .claude/settings.local.json

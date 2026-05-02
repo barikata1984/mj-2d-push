@@ -3,7 +3,7 @@
 
   // Use docker-compose as the backend — minimal devcontainer-specific config.
   // The same docker-compose.yaml works standalone with `docker compose up`.
-  "dockerComposeFile": ["../docker/docker-compose.yaml"],
+  "dockerComposeFile": ["docker-compose.yaml"],
   "service": "dev",  // TODO: match service name in docker-compose.yaml
   "workspaceFolder": "/workspace",
 
@@ -88,8 +88,8 @@
   },
 
   // Runs on the host before the container starts.
-  // Generates docker/.env from the host's UID/GID if absent (idempotent).
-  "initializeCommand": ["bash", "docker/init-env.sh"],
+  // Generates .devcontainer/.env from the host's UID/GID if absent (idempotent).
+  "initializeCommand": ["bash", ".devcontainer/init-env.sh"],
 
   "postCreateCommand": "echo '=== Dev container ready ===' && python --version",
 

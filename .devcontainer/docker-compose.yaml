@@ -2,8 +2,8 @@
 # Development Container — Docker Compose (Base Template)
 # =============================================================================
 # Usage (standalone):
-#   cd docker
-#   cp .env.example .env            # edit for your machine
+#   cd .devcontainer
+#   bash init-env.sh                # generates .env (UID/GID + COMPOSE_PROJECT_NAME)
 #   docker compose build
 #   docker compose up -d
 #   docker compose exec dev zsh
@@ -12,22 +12,20 @@
 #   Open in VS Code -> "Reopen in Container"
 # =============================================================================
 
-name: my-project  # TODO: rename to your project name
-
 services:
   # ---------------------------------------------------------------------------
   # Main development container
   # ---------------------------------------------------------------------------
-  dev:  # TODO: rename to your service name
+  dev:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         CUDA_VERSION: ${CUDA_VERSION:-12.8.0}
-        HOST_UID: ${HOST_UID:?run "bash docker/init-env.sh" first to generate docker/.env}
-        HOST_GID: ${HOST_GID:?run "bash docker/init-env.sh" first to generate docker/.env}
+        HOST_UID: ${HOST_UID:?run "bash .devcontainer/init-env.sh" first to generate .devcontainer/.env}
+        HOST_GID: ${HOST_GID:?run "bash .devcontainer/init-env.sh" first to generate .devcontainer/.env}
         HOST_USER: ${USER:-developer}
-    image: my-project:latest  # TODO: rename to your image name
+    image: ${COMPOSE_PROJECT_NAME}:latest
 
     environment:
       - HOST_USER=${USER:-developer}
@@ -51,7 +49,8 @@ services:
       - ${HOME}/.ssh:/home/${USER:-developer}/.ssh:ro
       - ${HOME}/.gitconfig:/home/${USER:-developer}/.gitconfig:ro
 
-      # Claude Code: share user-level config; per-container projects/todos/auth stay isolated
+      # Claude Code: share user-level config; auth stays per-container;
+      # session history persists across rebuild via the 4 mounts below.
       - ${HOME}/.claude/CLAUDE.md:/home/${USER:-developer}/.claude/CLAUDE.md
       - ${HOME}/.claude/skills:/home/${USER:-developer}/.claude/skills
       - ${HOME}/.claude/agents:/home/${USER:-developer}/.claude/agents
@@ -60,6 +59,13 @@ services:
       - ${HOME}/.claude/settings.json:/home/${USER:-developer}/.claude/settings.json
       - ${HOME}/.claude/keybindings.json:/home/${USER:-developer}/.claude/keybindings.json
       - ${HOME}/.claude/rules:/home/${USER:-developer}/.claude/rules
+
+      # Claude Code session history (per compose project, survives rebuild).
+      # Host layout: ~/.claude-stacks/<COMPOSE_PROJECT_NAME>/{projects,sessions,todos,shell-snapshots}
+      - ${HOME}/.claude-stacks/${COMPOSE_PROJECT_NAME}/projects:/home/${USER:-developer}/.claude/projects
+      - ${HOME}/.claude-stacks/${COMPOSE_PROJECT_NAME}/sessions:/home/${USER:-developer}/.claude/sessions
+      - ${HOME}/.claude-stacks/${COMPOSE_PROJECT_NAME}/todos:/home/${USER:-developer}/.claude/todos
+      - ${HOME}/.claude-stacks/${COMPOSE_PROJECT_NAME}/shell-snapshots:/home/${USER:-developer}/.claude/shell-snapshots
 
       # X11 / GUI forwarding
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

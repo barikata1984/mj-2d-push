@@ -79,6 +79,11 @@ RUN curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/instal
 # entrypoint-set env vars do not propagate through `docker exec`.
 RUN mkdir -p /etc/zsh && cat >> /etc/zsh/zshenv <<'EOF'
 
+# gosu/docker-exec do not propagate $USER (only $HOME). Restore it from
+# /etc/passwd so $USER works uniformly across all zsh entry points.
+export USER="${USER:-$(id -un)}"
+export LOGNAME="${LOGNAME:-$USER}"
+
 # Doppler: fetch secrets when DOPPLER_TOKEN is set in the container env.
 # Silently no-op when token is missing or fetch fails.
 if [ -n "${DOPPLER_TOKEN:-}" ] && command -v doppler >/dev/null 2>&1; then

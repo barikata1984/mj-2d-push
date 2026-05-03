@@ -33,7 +33,15 @@ cd my-new-project/
 
 `.devcontainer/init-env.sh` 冒頭の `PROJECT_NAME="my-project"` を新しい名前に書き換える。これが image tag・bind mount パス・compose project name を貫く SSoT (Single Source of Truth)。
 
-`.devcontainer/devcontainer.json` の表示名 (`name`) も任意で更新可能だが必須ではない。`docker-compose.yaml` は `${COMPOSE_PROJECT_NAME}` 補間で参照しているため触る必要なし。
+`docker-compose.yaml` は `${COMPOSE_PROJECT_NAME}` 補間で参照しているため触る必要なし。
+
+ただし [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) の `"name"` フィールド（VS Code 左下に "Dev Container: ..." と表示されるラベル）は devcontainer 仕様上 `.env` 補間に対応しないため SSoT から自動派生しない。プロジェクト識別を視覚的に揃えたい場合は、ここも併せて手動更新する：
+
+```jsonc
+"name": "Your Project Name",  // 表示ラベル。Docker 識別子 (image/container 名) には影響しない
+```
+
+更新後は `Cmd/Ctrl+Shift+P → Developer: Reload Window` で反映（リビルド不要）。
 
 ### 3. 環境変数を設定
 

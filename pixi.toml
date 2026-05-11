@@ -1,0 +1,54 @@
+# =============================================================================
+# Pixi project configuration — Python environment for this devcontainer
+# =============================================================================
+# The container's entrypoint runs `pixi install` against this file, which
+# materialises the environment under /workspace/.pixi/envs/default.
+#
+# Add project-specific dependencies under [dependencies] (conda) or
+# [pypi-dependencies] (PyPI-only packages).
+# =============================================================================
+
+[workspace]
+# This `name` is the SSoT for the project identifier. It is reused as:
+#   - docker compose project name (image tag, network, volume prefix)
+#   - the directory name for Claude Code session-history persistence
+# `init-env.sh` extracts this value at host-side initialisation; do not
+# duplicate it elsewhere.
+name = "my-project"           # TODO: rename to your project name
+version = "0.1.0"
+description = "Devcontainer Python environment managed by pixi"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# Container-operation tasks. Run from the host (no pixi inside the container
+# is required for these — they shell out to docker compose).
+#   pixi run build        # build / rebuild the dev image
+#   pixi run up           # start the container in detached mode
+#   pixi run shell        # exec into the running container as the dev user
+#   pixi run down         # stop and remove the container
+#   pixi run logs         # tail container logs
+[tasks]
+build = "docker compose -f .devcontainer/docker-compose.yaml build"
+up = "docker compose -f .devcontainer/docker-compose.yaml up -d"
+shell = "docker compose -f .devcontainer/docker-compose.yaml exec dev zsh"
+down = "docker compose -f .devcontainer/docker-compose.yaml down"
+logs = "docker compose -f .devcontainer/docker-compose.yaml logs -f"
+
+[dependencies]
+# --- Python interpreter (pinned major.minor) ---
+python = "3.12.*"
+
+# --- Development / debugging ---
+debugpy = "*"
+ipdb = "*"
+rich = "*"
+
+# --- Code quality ---
+ruff = "*"
+
+# --- Testing ---
+pytest = ">=7.0"
+pytest-xdist = "*"
+
+[pypi-dependencies]
+# Add PyPI-only packages here (none by default).

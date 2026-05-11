@@ -1,39 +1,45 @@
 # Devcontainer Base Template
 
-NVIDIA CUDA + Ubuntu 24.04 ベースの VS Code devcontainer テンプレート。
+NVIDIA CUDA + Ubuntu (既定 24.04) ベースの VS Code devcontainer テンプレート。Python 環境は [pixi](https://pixi.sh/) で管理し、`pixi.lock` でビット単位の再現性を担保する。
 GPU 開発環境を新規プロジェクトごとに素早く立ち上げるためのベース設定。
 
 ## ディレクトリ構成
 
 ```
-template/
+<repo-root>/
 ├── .devcontainer/
 │   ├── devcontainer.json       # VS Code 拡張・Python・シェル設定
-│   ├── Dockerfile              # nvidia/cuda + Ubuntu 24.04, Python venv, 非 root ユーザー
+│   ├── Dockerfile              # nvidia/cuda + Ubuntu (既定 24.04), pixi, 非 root ユーザー
 │   ├── docker-compose.yaml     # GPU・ボリューム・ipc: host
-│   ├── entrypoint.sh           # zsh 初期化 + gosu による非 root 切替
-│   ├── init-env.sh             # PROJECT_NAME 定義 + .env 生成 (SSoT)
-│   ├── requirements.txt        # 共通 dev ツール (ruff, pytest, debugpy 等)
+│   ├── entrypoint.sh           # zsh 初期化 + pixi install + gosu による非 root 切替
+│   ├── init-env.sh             # pixi.toml から .env 生成 (SSoT 派生)
+│   ├── .dockerignore           # ビルドコンテキスト除外 (.env / .pixi 等)
 │   └── .env.example            # マシン固有の設定テンプレート
-├── .dockerignore               # ホワイトリスト方式のビルドコンテキスト制御
-├── .gitignore                  # .devcontainer/.env 等を除外
+├── pixi.toml                   # プロジェクト名・Python バージョン・依存パッケージ定義 (SSoT)
+├── pixi.lock                   # 解決済み依存の凍結 (pixi が自動生成)
+├── .gitignore                  # .devcontainer/.env / .pixi/ 等を除外
 └── README.md
 ```
 
 ## 使い方
 
-### 1. テンプレートをコピー
+### 1. リポジトリをクローン
 
 ```bash
-cp -r template/ my-new-project/
-cd my-new-project/
+git clone <this-repo-url> my-new-project
+cd my-new-project
 ```
 
 ### 2. プロジェクト名を書き換える
 
-`.devcontainer/init-env.sh` 冒頭の `PROJECT_NAME="my-project"` を新しい名前に書き換える。これが image tag・bind mount パス・compose project name を貫く SSoT (Single Source of Truth)。
+[pixi.toml](pixi.toml) の `[workspace].name` を新しい名前に書き換える。これが image tag・compose project name・Claude Code 履歴ディレクトリ名を貫く **唯一の SSoT (Single Source of Truth)**。
 
-`docker-compose.yaml` は `${COMPOSE_PROJECT_NAME}` 補間で参照しているため触る必要なし。
+```toml
+[workspace]
+name = "your-new-project-name"   # ここ 1 箇所だけ書き換える
+```
+
+`init-env.sh` がこの値を `tomllib` で抽出し、`.devcontainer/.env` の `COMPOSE_PROJECT_NAME` に流し込む。`docker-compose.yaml` / `Dockerfile` / `entrypoint.sh` は `${COMPOSE_PROJECT_NAME}` 補間で参照しているため触る必要なし。古い pixi.toml で `[project]` を使っているリポジトリも互換のため引き続き読める。
 
 ただし [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json) の `"name"` フィールド（VS Code 左下に "Dev Container: ..." と表示されるラベル）は devcontainer 仕様上 `.env` 補間に対応しないため SSoT から自動派生しない。プロジェクト識別を視覚的に揃えたい場合は、ここも併せて手動更新する：
 
@@ -45,19 +51,44 @@ cd my-new-project/
 
 ### 3. 環境変数を設定
 
-UID/GID と `COMPOSE_PROJECT_NAME` は初回起動時に `.devcontainer/init-env.sh` が `.devcontainer/.env` として自動生成する。
+[.devcontainer/.env](.devcontainer/.env) は `.devcontainer/init-env.sh` が以下を素材に自動生成する：
 
+- pixi.toml の `[workspace].name` → `COMPOSE_PROJECT_NAME`
+- ホストの UID/GID → `HOST_UID` / `HOST_GID`
+- 環境変数または既定値 → `CUDA_VERSION` / `UBUNTU_VERSION` / `WORKSPACE_DIR` / `DEFAULT_USER` / `LOCALE` / `DISPLAY_NUM` / `NVIDIA_VISIBLE_DEVICES`
+
+実行タイミング:
 - **VS Code (devcontainer)**: 自動。`devcontainer.json` の `initializeCommand` がスクリプトを呼ぶ
 - **CLI (standalone)**: 起動前に 1 度だけ手動実行
   ```bash
   bash .devcontainer/init-env.sh
   ```
 
-CUDA バージョンや DISPLAY 等を上書きしたい場合は、生成された `.devcontainer/.env` に追記する (項目は `.devcontainer/.env.example` を参照)。`.devcontainer/.env` は git 管理外なので、`PROJECT_NAME` 変更後にリセットしたい場合はファイルを削除すれば次回起動時に再生成される。
+既定値を上書きしたい場合の選択肢:
+- 生成された `.devcontainer/.env` を直接編集する（最も手軽）
+- `.devcontainer/.env` を削除し、override をシェルで export してから再実行：
+  ```bash
+  rm .devcontainer/.env
+  CUDA_VERSION=12.6.0 UBUNTU_VERSION=22.04 LOCALE=ja_JP.UTF-8 bash .devcontainer/init-env.sh
+  ```
+
+各変数の意味は [.devcontainer/.env.example](.devcontainer/.env.example) を参照。`.devcontainer/.env` は git 管理外。
 
 ### 4. プロジェクト固有の依存を追加
 
-`.devcontainer/requirements.txt` にプロジェクトで使うパッケージを追記する。
+ルート直下の [pixi.toml](pixi.toml) に追記する。conda-forge にあるパッケージは `[dependencies]`、PyPI 専用パッケージは `[pypi-dependencies]` に書く：
+
+```toml
+[dependencies]
+python = "3.12.*"
+numpy = "*"
+pytorch = "*"
+
+[pypi-dependencies]
+some-pypi-only-package = "*"
+```
+
+編集後は **コンテナ内で** `pixi install` を実行して [pixi.lock](pixi.lock) を更新し、`pixi.toml` と `pixi.lock` を一緒にコミットする。コンテナ起動時には `entrypoint.sh` が `pixi install --locked` で lock 整合を検証するため、lock 更新を忘れると起動時に警告が出る。
 
 ### 5. コンテナを起動
 
@@ -65,7 +96,17 @@ CUDA バージョンや DISPLAY 等を上書きしたい場合は、生成され
 
 コマンドパレット → `Dev Containers: Reopen in Container`
 
-**CLI (standalone)**:
+**CLI (standalone)**: ホスト側に pixi が入っていれば、リポジトリルートから 1 コマンドで全操作可能（[pixi.toml](pixi.toml) の `[tasks]` を参照）：
+
+```bash
+pixi run build       # docker compose build
+pixi run up          # docker compose up -d
+pixi run shell       # docker compose exec dev zsh
+pixi run logs        # docker compose logs -f
+pixi run down        # docker compose down
+```
+
+pixi を使わない場合は従来どおり：
 
 ```bash
 cd .devcontainer
@@ -78,7 +119,7 @@ docker compose exec dev zsh
 
 ### ベースイメージ
 
-`nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04` — CUDA バージョンは `.env` の `CUDA_VERSION` で切替可能。
+`nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}` — CUDA・Ubuntu のバージョンは `.env` の `CUDA_VERSION` / `UBUNTU_VERSION` で切替可能。
 
 ### GPU サポート
 
@@ -92,7 +133,7 @@ docker compose exec dev zsh
 
 | ホスト | コンテナ | 用途 |
 |-------|---------|------|
-| プロジェクトルート | `/workspace` | ワークスペース |
+| プロジェクトルート | `${WORKSPACE_DIR}` (既定 `/workspace`) | ワークスペース |
 | `~/.ssh` | `~/.ssh` (ro) | SSH 鍵 |
 | `~/.gitconfig` | `~/.gitconfig` (ro) | Git 設定 |
 | `~/.claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | Claude Code: ユーザーレベル指示 |
@@ -103,7 +144,7 @@ docker compose exec dev zsh
 | `~/.claude/keybindings.json` | `~/.claude/keybindings.json` | Claude Code: キーバインド |
 | `~/.claude/rules` | `~/.claude/rules` | Claude Code: CLAUDE.md から参照される個人ルール |
 | `/tmp/.X11-unix` | `/tmp/.X11-unix` | GUI 転送 |
-| named volume | `~/.cache/pip` | pip キャッシュ永続化 |
+| named volume | `~/.cache/rattler` | pixi/conda パッケージキャッシュ永続化 |
 
 > Claude Code の会話履歴・todos・shell snapshots は別途ホスト側 `~/.claude-stacks/${COMPOSE_PROJECT_NAME}/` に bind mount され、rebuild を跨いで保持される（詳細は[後述](#claude-code-履歴の永続化)）。一方 `.credentials.json` (認証) と `~/.claude.json` (MCP) はコンテナ独立で、初回利用時は `claude` で再ログインが必要。
 
@@ -111,12 +152,24 @@ docker compose exec dev zsh
 
 Claude Code, Python, Pylance, Ruff, Jupyter, Docker, GitLens, Git Graph, Debugpy, YAML, TOML, Markdown, Error Lens, Todo Tree, Spell Checker, Path Intellisense
 
+### pixi のディレクトリ配置
+
+| パス | 役割 |
+|---|---|
+| `/usr/local/bin/pixi` | pixi バイナリ本体（システムワイド、全ユーザーから PATH 経由で見える） |
+| `~/.pixi/` | `PIXI_HOME`。pixi の global env / config 置き場（非 root ユーザー所有） |
+| `${WORKSPACE_DIR}/.pixi/envs/default/` | プロジェクト固有の Python 環境本体（`pixi install` で生成、`.gitignore` 対象） |
+| `~/.cache/rattler/` | conda/PyPI パッケージのダウンロードキャッシュ（named volume で永続化） |
+
 ### entrypoint.sh の動作
 
-1. 初回起動時に zsh の設定ファイルを生成
-2. `~/.cache`, `~/.local`, `~/.config`, `~/.claude` を作成
-3. `pyproject.toml` があればプロジェクトを editable install
-4. `gosu` で非 root ユーザーに切替してコマンドを実行
+1. 初回起動時に zsh の設定ファイルを生成（`pixi shell-hook` を `.zshrc` に組み込み）
+2. `~/.cache`, `~/.cache/rattler`, `~/.local`, `~/.config`, `~/.claude`, `~/.pixi` を作成 & 非 root ユーザー所有に変更（named volume / `PIXI_HOME` の root 所有を補正）
+3. `${WORKSPACE_DIR}/pixi.toml` から pixi 環境を `${WORKSPACE_DIR}/.pixi/envs/default` に materialize
+   - `pixi.lock` がある場合: `pixi install --locked` で整合検証
+   - 無い場合: `pixi install` で lock を新規生成
+4. `pyproject.toml` があれば pixi 環境の pip でプロジェクトを editable install
+5. `gosu` で非 root ユーザーに切替してコマンドを実行
 
 ### Doppler によるシークレット管理 (オプション)
 

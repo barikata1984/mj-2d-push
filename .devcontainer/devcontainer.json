@@ -7,8 +7,9 @@
   "service": "dev",  // TODO: match service name in docker-compose.yaml
   "workspaceFolder": "/workspace",
 
-  // Run as the non-root user created in the Dockerfile
-  "remoteUser": "${localEnv:USER:developer}",
+  // Run as the non-root user created in the Dockerfile.
+  // Must match HOST_USER (= DEFAULT_USER in .env) so the user exists in /etc/passwd.
+  "remoteUser": "developer",
 
   "customizations": {
     "vscode": {
@@ -19,8 +20,8 @@
           "zsh": { "path": "/bin/zsh" }
         },
 
-        // Python
-        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        // Python (pixi-managed environment, materialised at /workspace/.pixi/envs/default)
+        "python.defaultInterpreterPath": "/workspace/.pixi/envs/default/bin/python",
         "python.analysis.extraPaths": [
           "/workspace/src"
         ],

@@ -2,7 +2,7 @@
 # Development Container — Base Template
 # =============================================================================
 # Base: NVIDIA CUDA + Ubuntu 24.04
-# Adds:  Python venv, GPU rendering libs, dev tooling, non-root user
+# Adds:  pixi (Python env manager), GPU rendering libs, dev tooling, non-root user
 #
 # Build:  docker compose build
 # Run:    docker compose up -d
@@ -10,9 +10,14 @@
 # =============================================================================
 
 ARG CUDA_VERSION=12.8.0
-FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04
+ARG UBUNTU_VERSION=24.04
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# ---- Build-time configurables (defaults align with .env.example) ------------
+ARG LOCALE=en_US.UTF-8
+ARG WORKSPACE_DIR=/workspace
 
 # ---- System packages --------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,11 +32,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
         build-essential \
         cmake \
-        # Python 3
-        python3 \
-        python3-pip \
-        python3-venv \
-        python3-dev \
         # GPU rendering (EGL / OSMesa for headless)
         libegl1 \
         libgl1 \
@@ -50,23 +50,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-client \
         less \
         jq \
-    && locale-gen en_US.UTF-8 \
+    && locale-gen ${LOCALE} \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-ENV LANG=en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
+ENV LANG=${LOCALE}
+ENV LC_ALL=${LOCALE}
 
-# ---- Python virtual environment ---------------------------------------------
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv ${VIRTUAL_ENV}
-ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
-
-# ---- Pip packages (from separate requirements file) -------------------------
-COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt
+# ---- pixi (Python environment manager) --------------------------------------
+# The binary lands in /usr/local/bin so all users see it on PATH without extra
+# shell config. PIXI_HOME (where pixi keeps global envs / config) is set later,
+# after the non-root user is created, so writes go to that user's home and not
+# to a root-owned system directory.
+# The actual project environment is materialised at runtime (entrypoint) from
+# ${WORKSPACE_DIR}/pixi.toml into ${WORKSPACE_DIR}/.pixi/envs/default.
+ENV PIXI_BIN_DIR=/usr/local/bin PIXI_NO_PATH_UPDATE=1
+RUN curl -fsSL https://pixi.sh/install.sh | sh \
+    && pixi --version
 
 # ---- Doppler CLI (fetches secrets per-shell via /etc/zsh/zshenv below) -----
 RUN curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh \
@@ -116,10 +116,18 @@ RUN if getent group ${HOST_GID} >/dev/null 2>&1; then \
        > /etc/sudoers.d/container-user \
     && chmod 0440 /etc/sudoers.d/container-user
 
+# Point pixi at the non-root user's home for global envs / config. Without
+# this, `pixi info` and other global ops try to create /usr/local/envs and
+# fail with Permission denied. The project-local env in ${WORKSPACE_DIR}/.pixi
+# is unaffected. entrypoint.sh chowns this directory at startup.
+ENV PIXI_HOME=/home/${HOST_USER}/.pixi
+
 # ---- Entrypoint -------------------------------------------------------------
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-WORKDIR /workspace
+# Persist WORKSPACE_DIR as an env var so entrypoint.sh and shells can reuse it.
+ENV WORKSPACE_DIR=${WORKSPACE_DIR}
+WORKDIR ${WORKSPACE_DIR}
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sleep", "infinity"]

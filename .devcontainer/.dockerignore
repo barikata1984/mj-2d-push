@@ -1,0 +1,17 @@
+# =============================================================================
+# Build-context ignore for the devcontainer image.
+# Build context is .devcontainer/ (see docker-compose.yaml: build.context: .).
+#
+# The image only needs Dockerfile + entrypoint.sh; everything else in this
+# directory is host- or runtime-specific and would invalidate the build cache
+# unnecessarily if included.
+# =============================================================================
+
+# Host-specific generated env file (must never enter the image).
+.env
+
+# Local-only compose overrides.
+docker-compose.override.yaml
+
+# Pixi environment (materialised at runtime via bind-mounted /workspace).
+.pixi/

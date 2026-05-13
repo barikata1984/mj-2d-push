@@ -47,18 +47,10 @@ if [ -d "${WORKSPACE_DIR}/.pixi/envs/default" ] && command -v pixi >/dev/null 2>
     eval "$(pixi shell-hook --manifest-path "${WORKSPACE_DIR}" 2>/dev/null)"
 fi
 
-# Expose the `claude` CLI bundled with the VS Code Claude Code extension.
-# The extension directory carries a version suffix that changes on updates,
-# so we resolve it via glob at shell startup. Silently no-op when the
-# extension is not installed (e.g. when the container is opened without
-# VS Code attached, or on first boot before the extension is installed).
-# Glob qualifiers: (N) null-glob, (.) regular files, (x) executable,
-# (oc) sort by ctime descending so the most recently installed wins, [1] pick first.
-_claude_bin=("${HOME}"/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude(N.xoc[1]))
-if (( ${#_claude_bin} )); then
-    export PATH="${_claude_bin[1]:h}:${PATH}"
-fi
-unset _claude_bin
+# Note: the `claude` CLI from the VS Code Claude Code extension is put on PATH
+# by /etc/zsh/zshenv (installed by the Dockerfile), not here — that file is
+# part of the image and refreshes on rebuild, whereas this ~/.zshrc is written
+# once and never updated.
 ZSHRC
     chown "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}/.zshrc"
 fi

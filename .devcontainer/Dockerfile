@@ -92,6 +92,21 @@ if [ -n "${DOPPLER_TOKEN:-}" ] && command -v doppler >/dev/null 2>&1; then
     fi
     unset _doppler_env DOPPLER_TOKEN
 fi
+
+# Expose the `claude` CLI bundled with the VS Code Claude Code extension.
+# The extension dir carries a version suffix that changes on updates, and
+# .vscode-server is only populated after VS Code attaches, so we resolve it
+# via a zsh glob at shell startup. Lives here (not in the generated ~/.zshrc)
+# so it is part of the image and updates with a rebuild — ~/.zshrc is only
+# written once by entrypoint.sh and never refreshed afterwards.
+# Glob qualifiers: (N) null-glob (no error when absent), (.) regular files,
+# (x) executable, (oc) sort by ctime descending so the newest install wins,
+# [1] take the first. No-ops silently when the extension isn't present.
+_claude_bin=("${HOME}"/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude(N.xoc[1]))
+if (( ${#_claude_bin} )); then
+    export PATH="${_claude_bin[1]:h}:${PATH}"
+fi
+unset _claude_bin
 EOF
 
 # ---- Non-root user (UID/GID injected at build time) ------------------------

@@ -55,6 +55,7 @@
       "extensions": [
         // --- AI assistant ---
         "anthropic.claude-code",
+        "nuriyev.claude-code-katex",  // renders LaTeX/KaTeX in Claude Code chat
 
         // --- Python core ---
         "ms-python.python",

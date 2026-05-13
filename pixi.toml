@@ -20,6 +20,13 @@ description = "Devcontainer Python environment managed by pixi"
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
+# Exclude package versions published within the last week from resolution
+# (settle time). This is a relative value, so the lockfile is re-resolved
+# once a package's release ages past that window. Absolute forms also work:
+# "2026-05-10" or "2023-10-01T00:00:00Z". To override per package, use
+# [exclude-newer] (conda) / [pypi-exclude-newer] (PyPI).
+exclude-newer = "7d"
+
 # Container-operation tasks. Run from the host (no pixi inside the container
 # is required for these — they shell out to docker compose).
 #   pixi run build        # build / rebuild the dev image

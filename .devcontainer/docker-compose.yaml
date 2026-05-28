@@ -64,6 +64,7 @@ services:
       - ${HOME}/.claude/settings.json:/home/${DEFAULT_USER}/.claude/settings.json
       - ${HOME}/.claude/keybindings.json:/home/${DEFAULT_USER}/.claude/keybindings.json
       - ${HOME}/.claude/rules:/home/${DEFAULT_USER}/.claude/rules
+      - ${HOME}/.claude/output-styles:/home/${DEFAULT_USER}/.claude/output-styles
 
       # Claude Code session history (per compose project, survives rebuild).
       # Host layout: ~/.claude-stacks/<COMPOSE_PROJECT_NAME>/{projects,sessions,todos,shell-snapshots}

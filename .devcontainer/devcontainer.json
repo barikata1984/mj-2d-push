@@ -63,7 +63,9 @@
         "charliermarsh.ruff",
 
         // --- Pixi (environment manager; mirrors entrypoint.sh / Dockerfile setup) ---
-        "jjjermiah.pixi-vscode",
+        "jjjermiah.pixi-vscode",       // project mgmt UI (tasks, env switcher)
+        "renan-r-santos.pixi-code",    // Pixi integration for the Python Environments extension
+        "ms-python.vscode-python-envs", // dep of pixi-code; declared explicitly for clarity
 
         // --- Jupyter (interactive prototyping) ---
         "ms-toolsai.jupyter",

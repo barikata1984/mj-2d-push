@@ -1,0 +1,18 @@
+{
+  "scene_path": "/workspace/stage1_scene.xml",
+  "push_speed": 0.03,
+  "y_start": 0.235,
+  "y_goal": 0.78,
+  "max_sim_time": 30.0,
+  "mpc_dt": 0.03,
+  "mpc_horizon": 10,
+  "mpc_v_max": 0.08,
+  "damping": 0.001,
+  "ik_gain": 2.0,
+  "ik_max_step": 0.02,
+  "render_width": 960,
+  "render_height": 720,
+  "render_camera": "side",
+  "render_fps": 30,
+  "render_every_n_mpc": 1
+}

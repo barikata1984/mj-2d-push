@@ -21,3 +21,12 @@ logs/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# MuJoCo menagerie (sparse clone, not vendored)
+mujoco_menagerie/
+
+# Simulation results — frame images are large; keep data/video/plots only
+results/*/pics/
+
+# Symlinks to external assets
+assets

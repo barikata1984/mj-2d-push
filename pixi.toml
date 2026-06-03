@@ -14,7 +14,7 @@
 #   - the directory name for Claude Code session-history persistence
 # `init-env.sh` extracts this value at host-side initialisation; do not
 # duplicate it elsewhere.
-name = "my-project"           # TODO: rename to your project name
+name = "mj-2d-push"           # TODO: rename to your project name
 version = "0.1.0"
 description = "Devcontainer Python environment managed by pixi"
 channels = ["conda-forge"]
@@ -56,6 +56,12 @@ ruff = "*"
 # --- Testing ---
 pytest = ">=7.0"
 pytest-xdist = "*"
+pymupdf = ">=1.27.2.2,<2"
+mujoco = ">=3.8.1,<4"
+scipy = ">=1.17.1,<2"
+matplotlib = ">=3.10.9,<4"
+ffmpeg = ">=8.1.1,<9"
+pillow = ">=12.2.0,<13"
 
 [pypi-dependencies]
 # Add PyPI-only packages here (none by default).

@@ -250,6 +250,7 @@ def move_tip_to(
         dq = damped_pinv(J, cfg.damping) @ step
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
+        d.ctrl[6] = 255  # keep gripper closed
         for __ in range(substeps):
             mujoco.mj_step(m, d)
         if renderer is not None:
@@ -261,14 +262,18 @@ def move_tip_to(
 # Extract contact force between pusher_tip and slider_geom
 # ---------------------------------------------------------------------------
 def get_pusher_slider_contact_force(
-    m: mujoco.MjModel, d: mujoco.MjData, pusher_geom_id: int, slider_geom_id: int
+    m: mujoco.MjModel,
+    d: mujoco.MjData,
+    pad_geom_ids: list[int],
+    slider_geom_id: int,
 ) -> np.ndarray:
     total = np.zeros(3)
+    pad_set = set(pad_geom_ids)
     for i in range(d.ncon):
         c = d.contact[i]
         g1, g2 = c.geom1, c.geom2
-        if (g1 == pusher_geom_id and g2 == slider_geom_id) or (
-            g1 == slider_geom_id and g2 == pusher_geom_id
+        if (g1 in pad_set and g2 == slider_geom_id) or (
+            g1 == slider_geom_id and g2 in pad_set
         ):
             force = np.zeros(6)
             mujoco.mj_contactForce(m, d, i, force)
@@ -293,10 +298,18 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
     m = mujoco.MjModel.from_xml_path(cfg.scene_path)
     d = mujoco.MjData(m)
 
-    tip_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "pusher_tip_site")
+    tip_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "gripper_pinch")
     slider_body_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "slider")
     key_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "ready")
-    pusher_geom_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "pusher_tip")
+    pad_geom_ids = [
+        mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, name)
+        for name in [
+            "gripper_right_pad1",
+            "gripper_right_pad2",
+            "gripper_left_pad1",
+            "gripper_left_pad2",
+        ]
+    ]
     slider_geom_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "slider_geom")
 
     mujoco.mj_resetDataKeyframe(m, d, key_id)
@@ -304,25 +317,35 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
 
     tip_init = d.site_xpos[tip_site_id].copy()
     slider_pos_init, slider_theta_init = slider_pose_from_data(d, slider_body_id)
-    print(f"Initial pusher tip: {tip_init}")
+    print(f"Initial pusher tip (kinematic): {tip_init}")
     print(
         f"Initial slider pos: {slider_pos_init}, "
         f"theta: {np.degrees(slider_theta_init):.2f} deg"
     )
 
     ctrl = d.ctrl[:6].copy()
+    d.ctrl[6] = 255
     substeps = int(cfg.mpc_dt / m.opt.timestep)
 
     renderer = FrameRenderer(m, cfg, pics_dir)
 
+    # --- Phase -1: Gravity settle ---
+    print("\n--- Phase -1: Gravity settle (2s) ---")
+    settle_steps = int(2.0 / m.opt.timestep)
+    for _ in range(settle_steps):
+        mujoco.mj_step(m, d)
+    mujoco.mj_forward(m, d)
+    tip_settled = d.site_xpos[tip_site_id].copy()
+    print(f"After settle: tip={tip_settled}")
+
     # --- Phase 0: Approach ---
     slider_face_y = slider_pos_init[1] - 0.03
     approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
+        [slider_pos_init[0], slider_face_y - 0.0005, slider_pos_init[2]]
     )
-    print(f"\n--- Phase 0: Approach (tip -> y={approach_target[1]:.4f}) ---")
+    print(f"\n--- Phase 0: Approach (tip -> {approach_target}) ---")
     ctrl = move_tip_to(
-        m, d, tip_site_id, approach_target, ctrl, cfg, renderer, max_steps=200
+        m, d, tip_site_id, approach_target, ctrl, cfg, renderer, max_steps=500
     )
     mujoco.mj_forward(m, d)
     tip_after = d.site_xpos[tip_site_id].copy()
@@ -359,7 +382,7 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
         slider_quat = d.xquat[slider_body_id].copy()
         pusher_body = pusher_in_slider_body(tip_pos, slider_pos, slider_theta)
         contact_force = get_pusher_slider_contact_force(
-            m, d, pusher_geom_id, slider_geom_id
+            m, d, pad_geom_ids, slider_geom_id
         )
 
         log.time.append(d.time)
@@ -409,7 +432,7 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
             vn, vt = cfg.push_speed, 0.0
         mpc_call_time_total += time.monotonic() - t0
 
-        vn = max(vn, 0.005)
+        vn = max(vn, cfg.push_speed)
         log.vn.append(vn)
         log.vt.append(vt)
         log.target_y.append(target_y_now)
@@ -422,6 +445,7 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
         dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
+        d.ctrl[6] = 255  # keep gripper closed
 
         for _ in range(substeps):
             mujoco.mj_step(m, d)

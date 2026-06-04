@@ -4,6 +4,12 @@ Stage 1: UR5e pusher-slider simulation with MPC control.
 Loads the MuJoCo scene, runs the MPC controller in a closed loop,
 renders frames, and produces video + data output.
 
+Coordinate convention:
+  - World frame: +x right, +y forward (push direction), +z up
+  - UR5e base has quat="0 0 0 -1" (180 deg around z), so base +y = world -y
+  - All control logic operates in world frame; the base frame rotation is
+    absorbed by the Jacobian-based IK and does not appear in the control math.
+
 Output structure:
   results/<trial_id>/
     pics/         frame images (PNG)

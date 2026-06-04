@@ -114,8 +114,8 @@
     <!-- Ready: arm at PD steady state, slider just ahead of pusher tip with ~1mm gap.
          ctrl differs from qpos due to gravity sag compensation. -->
     <key name="ready"
-      qpos="-2.3034 -2.5143 2.4770 -1.5301 -1.5708 0
+      qpos="-1.7912 -0.8219 2.7650 -1.7860 -2.8822 0
              0 0.235 0.315 1 0 0 0"
-      ctrl="-2.3034 -2.5069 2.4690 -1.5329 -1.5708 0"/>
+      ctrl="-1.7911 -0.8270 2.7665 -1.7855 -2.8827 0"/>
   </keyframe>
 </mujoco>

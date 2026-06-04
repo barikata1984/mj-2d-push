@@ -16,9 +16,7 @@ Output:
 
 from __future__ import annotations
 
-import sys
 import time
-from pathlib import Path
 
 import matplotlib
 
@@ -27,17 +25,18 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/workspace")
-from pusher_slider_mpc import PusherSliderMPC
-from run_stage1 import (
-    Config,
-    Log,
+from pusher_slider import paths
+from pusher_slider.config import MPCConfig, PushConfig, SimConfig
+from pusher_slider.controllers import PusherSliderMPC
+from pusher_slider.kinematics import (
     damped_pinv,
     get_jacobian,
-    get_pusher_slider_contact_force,
-    move_tip_to,
     pusher_in_slider_body,
     slider_pose_from_data,
+)
+from pusher_slider.sim.runner import (
+    get_pusher_slider_contact_force,
+    move_tip_to,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,7 +51,7 @@ MU_GROUND = 0.35
 G = 9.81
 MU_G = MU_GROUND * G  # ~3.43 m/s^2
 
-OUT_DIR = Path("/workspace/results/exp_speed_limit")
+OUT_DIR = paths.results_dir() / "exp_speed_limit"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -63,14 +62,18 @@ def run_single_speed(push_speed: float) -> dict:
     """Run a full MPC push at the given speed, return metrics dict."""
     mpc_v_max = MPC_V_MAX_FACTOR * push_speed
 
-    cfg = Config(
-        push_speed=push_speed,
-        y_start=Y_START,
-        y_goal=Y_GOAL,
-        max_sim_time=MAX_SIM_TIME,
-        mpc_dt=0.05,
-        mpc_horizon=5,
-        mpc_v_max=mpc_v_max,
+    cfg = SimConfig(
+        push=PushConfig(
+            push_speed=push_speed,
+            y_start=Y_START,
+            y_goal=Y_GOAL,
+            max_sim_time=MAX_SIM_TIME,
+        ),
+        mpc=MPCConfig(
+            dt=0.05,
+            horizon=5,
+            v_max=mpc_v_max,
+        ),
     )
 
     m = mujoco.MjModel.from_xml_path(cfg.scene_path)
@@ -89,16 +92,12 @@ def run_single_speed(push_speed: float) -> dict:
     slider_pos_init, _ = slider_pose_from_data(d, slider_body_id)
 
     ctrl = d.ctrl[:6].copy()
-    substeps = int(cfg.mpc_dt / m.opt.timestep)
+    substeps = int(cfg.mpc.dt / m.opt.timestep)
 
     # --- Phase 0: Approach ---
     slider_face_y = slider_pos_init[1] - 0.03
-    approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
-    )
-    ctrl = move_tip_to(
-        m, d, tip_site_id, approach_target, ctrl, cfg, renderer=None, max_steps=200
-    )
+    approach_target = np.array([slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]])
+    ctrl = move_tip_to(m, d, tip_site_id, approach_target, ctrl, cfg, renderer=None, max_steps=200)
     mujoco.mj_forward(m, d)
 
     # --- Phase 1: MPC push ---
@@ -107,8 +106,8 @@ def run_single_speed(push_speed: float) -> dict:
         mass=1.05,
         mu_pusher=0.3,
         mu_ground=MU_GROUND,
-        dt=cfg.mpc_dt,
-        horizon_N=cfg.mpc_horizon,
+        dt=cfg.mpc.dt,
+        horizon_N=cfg.mpc.horizon,
         Q_weights=np.array([30.0, 10.0, 15.0, 0.1]),
         R_weights=np.array([0.1, 0.1]),
         Q_terminal_scale=10.0,
@@ -141,14 +140,15 @@ def run_single_speed(push_speed: float) -> dict:
         slider_thetas.append(slider_theta)
         contact_force_norms.append(np.linalg.norm(cf))
 
-        if slider_pos[1] >= cfg.y_goal:
+        if slider_pos[1] >= cfg.push.y_goal:
             break
         if d.time - t_start > MAX_SIM_TIME:
             break
 
         pusher_body_clamped = np.array([np.clip(pusher_body[0], -0.038, 0.038), -0.03])
         target_y_now = min(
-            slider_pos[1] + cfg.push_speed * cfg.mpc_dt * cfg.mpc_horizon, cfg.y_goal
+            slider_pos[1] + cfg.push.push_speed * cfg.mpc.dt * cfg.mpc.horizon,
+            cfg.push.y_goal,
         )
         current_target = np.array([0.0, target_y_now, 0.0])
 
@@ -168,7 +168,7 @@ def run_single_speed(push_speed: float) -> dict:
         v_des_3d = np.array([v_world_xy[0], v_world_xy[1], 5.0 * z_error])
 
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
+        dq = damped_pinv(J, cfg.robot.damping) @ (v_des_3d * cfg.mpc.dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
 
@@ -404,13 +404,9 @@ def plot_results(results: list[dict], critical_speed: float) -> None:
     ax = axes[1, 0]
     qs_ratios = [r["qs_ratio"] for r in results]
     ax.plot(speeds, qs_ratios, "o-", color="tab:green", linewidth=1.5, markersize=5)
-    ax.axhline(
-        0.1, color="orange", linestyle="--", linewidth=1.5, label="questionable (0.1)"
-    )
+    ax.axhline(0.1, color="orange", linestyle="--", linewidth=1.5, label="questionable (0.1)")
     ax.axhline(0.5, color="red", linestyle="--", linewidth=1.5, label="violated (0.5)")
-    ax.axvline(
-        critical_speed, color="red", linestyle=":", alpha=0.6, label="critical speed"
-    )
+    ax.axvline(critical_speed, color="red", linestyle=":", alpha=0.6, label="critical speed")
     ax.set_xlabel("Push speed (m/s)")
     ax.set_ylabel("max_accel / (mu * g)")
     ax.set_title("Quasi-static validity ratio")
@@ -423,9 +419,7 @@ def plot_results(results: list[dict], critical_speed: float) -> None:
     ax = axes[1, 1]
     for i, r in enumerate(results):
         label = f"{r['push_speed']:.2f} m/s"
-        ax.plot(
-            r["slider_x"], r["slider_y"], color=colors[i], linewidth=1.2, label=label
-        )
+        ax.plot(r["slider_x"], r["slider_y"], color=colors[i], linewidth=1.2, label=label)
     ax.axvline(0.0, color="gray", linestyle="--", linewidth=0.5)
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
@@ -468,8 +462,7 @@ def plot_results(results: list[dict], critical_speed: float) -> None:
 
     # Mark critical speed in title
     fig.suptitle(
-        f"Quasi-Static Speed Limit Analysis  "
-        f"(critical speed ~ {critical_speed:.3f} m/s)",
+        f"Quasi-Static Speed Limit Analysis  (critical speed ~ {critical_speed:.3f} m/s)",
         fontsize=14,
         fontweight="bold",
     )

@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import re
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,10 +22,10 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/workspace")
-from pusher_slider_mpc import PusherSliderMPC
-from run_stage1 import (
-    Config,
+from pusher_slider import paths
+from pusher_slider.config import SimConfig
+from pusher_slider.controllers import PusherSliderMPC
+from pusher_slider.kinematics import (
     damped_pinv,
     get_jacobian,
     pusher_in_slider_body,
@@ -53,7 +52,7 @@ SWEEPS: dict[str, list] = {
     "cone": ["pyramidal", "elliptic"],
 }
 
-OUTPUT_DIR = Path("/workspace/results/exp_contact_sensitivity")
+OUTPUT_DIR = paths.results_dir() / "exp_contact_sensitivity"
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +78,8 @@ class RunResult:
 # ---------------------------------------------------------------------------
 def load_base_xml() -> str:
     """Load the two XML files and inline the include."""
-    scene_path = Path("/workspace/stage1_scene.xml")
-    ur5e_path = Path("/workspace/ur5e_with_pusher.xml")
+    scene_path = Path(paths.scene_path("stage1_scene.xml"))
+    ur5e_path = Path(paths.scene_path("legacy/ur5e_with_pusher.xml"))
     scene_xml = scene_path.read_text()
     ur5e_xml = ur5e_path.read_text()
 
@@ -100,7 +99,7 @@ def load_base_xml() -> str:
     # Add meshdir to the scene compiler so from_xml_string can find mesh assets.
     scene_xml = scene_xml.replace(
         '<compiler angle="radian" autolimits="true"/>',
-        '<compiler angle="radian" autolimits="true" meshdir="/workspace/assets"/>',
+        f'<compiler angle="radian" autolimits="true" meshdir="{paths.ASSETS_DIR}"/>',
     )
 
     return scene_xml
@@ -213,11 +212,11 @@ def run_single(
     xml_string: str,
     mu_pusher: float,
     mu_ground: float,
-    cfg: Config | None = None,
+    cfg: SimConfig | None = None,
 ) -> RunResult:
     """Run one push simulation and return metrics."""
     if cfg is None:
-        cfg = Config()
+        cfg = SimConfig()
 
     m = mujoco.MjModel.from_xml_string(xml_string)
     d = mujoco.MjData(m)
@@ -233,13 +232,11 @@ def run_single(
     slider_pos_init, _ = slider_pose_from_data(d, slider_body_id)
 
     ctrl = d.ctrl[:6].copy()
-    substeps = int(cfg.mpc_dt / m.opt.timestep)
+    substeps = int(cfg.mpc.dt / m.opt.timestep)
 
     # --- Phase 0: Approach ---
     slider_face_y = slider_pos_init[1] - 0.03
-    approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
-    )
+    approach_target = np.array([slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]])
 
     for _ in range(200):
         mujoco.mj_forward(m, d)
@@ -247,12 +244,12 @@ def run_single(
         err = approach_target - tip
         if np.linalg.norm(err) < 0.001:
             break
-        step = err * cfg.ik_gain
+        step = err * cfg.robot.ik_gain
         step_norm = np.linalg.norm(step)
-        if step_norm > cfg.ik_max_step:
-            step *= cfg.ik_max_step / step_norm
+        if step_norm > cfg.robot.ik_max_step:
+            step *= cfg.robot.ik_max_step / step_norm
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ step
+        dq = damped_pinv(J, cfg.robot.damping) @ step
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
         for __ in range(substeps):
@@ -264,12 +261,12 @@ def run_single(
         mass=1.05,
         mu_pusher=mu_pusher,
         mu_ground=mu_ground,
-        dt=cfg.mpc_dt,
-        horizon_N=cfg.mpc_horizon,
+        dt=cfg.mpc.dt,
+        horizon_N=cfg.mpc.horizon,
         Q_weights=np.array([30.0, 10.0, 15.0, 0.1]),
         R_weights=np.array([0.1, 0.1]),
         Q_terminal_scale=10.0,
-        v_max=cfg.mpc_v_max,
+        v_max=cfg.mpc.v_max,
         contact_face="-y",
     )
 
@@ -286,15 +283,16 @@ def run_single(
 
         theta_history.append(slider_theta)
 
-        if slider_pos[1] >= cfg.y_goal:
+        if slider_pos[1] >= cfg.push.y_goal:
             break
-        if d.time - t_start > cfg.max_sim_time:
+        if d.time - t_start > cfg.push.max_sim_time:
             break
 
         pusher_body_clamped = np.array([np.clip(pusher_body[0], -0.038, 0.038), -0.03])
 
         target_y_now = min(
-            slider_pos[1] + cfg.push_speed * cfg.mpc_dt * cfg.mpc_horizon, cfg.y_goal
+            slider_pos[1] + cfg.push.push_speed * cfg.mpc.dt * cfg.mpc.horizon,
+            cfg.push.y_goal,
         )
         current_target = np.array([0.0, target_y_now, 0.0])
 
@@ -305,7 +303,7 @@ def run_single(
                 target_pose=current_target,
             )
         except Exception:
-            vn, vt = cfg.push_speed, 0.0
+            vn, vt = cfg.push.push_speed, 0.0
 
         vn = max(vn, 0.005)
 
@@ -314,7 +312,7 @@ def run_single(
         v_des_3d = np.array([v_world_xy[0], v_world_xy[1], 5.0 * z_error])
 
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
+        dq = damped_pinv(J, cfg.robot.damping) @ (v_des_3d * cfg.mpc.dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
 
@@ -350,12 +348,12 @@ def run_single(
 # ---------------------------------------------------------------------------
 # Main sweep
 # ---------------------------------------------------------------------------
-def make_fast_config() -> Config:
+def make_fast_config() -> SimConfig:
     """Config tuned for faster sweep runs (larger dt, shorter horizon)."""
-    cfg = Config()
-    cfg.mpc_dt = 0.05
-    cfg.mpc_horizon = 5
-    cfg.max_sim_time = 40.0
+    cfg = SimConfig()
+    cfg.mpc.dt = 0.05
+    cfg.mpc.horizon = 5
+    cfg.push.max_sim_time = 40.0
     return cfg
 
 
@@ -433,9 +431,7 @@ def print_summary(all_results: dict[str, list[RunResult]]) -> None:
     for param_name, results in all_results.items():
         for r in results:
             val_str = (
-                f"{r.param_value}"
-                if isinstance(r.param_value, str)
-                else f"{r.param_value:.3f}"
+                f"{r.param_value}" if isinstance(r.param_value, str) else f"{r.param_value:.3f}"
             )
             print(
                 f"{r.param_name:<12} {val_str:>8} {'YES' if r.success else 'NO':>8} "
@@ -492,9 +488,7 @@ def plot_results(all_results: dict[str, list[RunResult]]) -> None:
 
         # Panel 2: theta oscillation
         ax = axes[1, col_idx]
-        ax.plot(
-            values, theta_oscs, "s-", color="tab:orange", linewidth=1.5, markersize=6
-        )
+        ax.plot(values, theta_oscs, "s-", color="tab:orange", linewidth=1.5, markersize=6)
         ax.axvline(
             default_val,
             color="red",
@@ -578,9 +572,7 @@ def plot_results(all_results: dict[str, list[RunResult]]) -> None:
         group_boundaries.append(len(all_labels))
         for r in results:
             val_str = (
-                f"{r.param_value}"
-                if isinstance(r.param_value, str)
-                else f"{r.param_value:.3f}"
+                f"{r.param_value}" if isinstance(r.param_value, str) else f"{r.param_value:.3f}"
             )
             all_labels.append(f"{param_name}\n{val_str}")
             all_x_drifts.append(r.x_drift * 1000)

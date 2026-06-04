@@ -7,24 +7,25 @@ lights, planar reflection off) and the goal marker visible. The overview pane
 carries a time / slider-y overlay.
 
 Usage:
-    pixi run python render_grid_video.py <trial_dir> [scene.xml]
+    pixi run python scripts/render_video.py <trial_dir> [scene.xml]
 
 Expects ``data.npz`` to contain ``joint_pos`` (N x 6 arm angles) and the slider
 pose series ``slider_x``, ``slider_y``, ``slider_quat`` (N x 4, w x y z), as
-produced by run_stage1.py. Output: ``<trial_dir>/result_grid.mp4``.
+produced by the push runner. Output: ``<trial_dir>/result_grid.mp4``.
 """
 
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 import mujoco
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-SCENE_DEFAULT = "/workspace/stage1_scene.xml"
+from .. import paths
+
+SCENE_DEFAULT = paths.scene_path()
 PANE_W, PANE_H = 480, 360
 FPS = 30
 SLIDER_Z = 0.342  # slider rests on the work surface; z is not logged
@@ -76,9 +77,7 @@ def render_grid_video(trial_dir: Path, scene: str = SCENE_DEFAULT) -> Path:
 
     renderer = mujoco.Renderer(m, height=PANE_H, width=PANE_W)
     try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22
-        )
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except OSError:
         font = ImageFont.load_default()
 
@@ -136,10 +135,3 @@ def render_grid_video(trial_dir: Path, scene: str = SCENE_DEFAULT) -> Path:
         raise RuntimeError(f"ffmpeg failed: {res.stderr[-400:]}")
     print(f"saved: {out} ({out.stat().st_size / 1024:.0f} KB)")
     return out
-
-
-if __name__ == "__main__":
-    trial = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    if trial is None or not (trial / "data.npz").exists():
-        sys.exit("usage: pixi run python render_grid_video.py <trial_dir> [scene.xml]")
-    render_grid_video(trial, sys.argv[2] if len(sys.argv) > 2 else SCENE_DEFAULT)

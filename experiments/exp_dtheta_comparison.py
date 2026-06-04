@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
+from pusher_slider import paths
+
 # ---------------------------------------------------------------------------
 # Shared physical parameters
 # ---------------------------------------------------------------------------
@@ -157,7 +159,7 @@ def _move_tip_to(
 
 def run_mujoco(
     px_offset: float = 0.0,
-    scene_path: str = "/workspace/stage1_scene.xml",
+    scene_path: str = paths.scene_path("stage1_scene.xml"),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Run MuJoCo sim with constant +y pusher velocity, record slider pose.
 
@@ -357,15 +359,13 @@ def compute_stats(
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
-    out_dir = Path("/workspace/results/exp_dtheta_comparison")
+    out_dir = paths.results_dir() / "exp_dtheta_comparison"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
     print("Experiment: Delta-theta comparison (Stage 0 vs Stage 1)")
     print("=" * 60)
-    print(
-        f"Slider: {SLIDER_A * 1e3:.0f} x {SLIDER_B * 1e3:.0f} mm, mass={SLIDER_MASS} kg"
-    )
+    print(f"Slider: {SLIDER_A * 1e3:.0f} x {SLIDER_B * 1e3:.0f} mm, mass={SLIDER_MASS} kg")
     print(f"c (limit surface) = {C_LS:.5f} m")
     print(f"mu_pusher={MU_PUSHER}, mu_ground={MU_GROUND}")
     print(f"Push speed={PUSH_SPEED} m/s, duration={T_PUSH} s")
@@ -387,8 +387,7 @@ def main() -> None:
         print("  Running Stage 0 (analytical) ...")
         t0, x0, y0, th0 = run_stage0(contact_geom)
         print(
-            f"  Stage 0 final: x={x0[-1]:.6f}, y={y0[-1]:.6f}, "
-            f"theta={np.degrees(th0[-1]):.4f} deg"
+            f"  Stage 0 final: x={x0[-1]:.6f}, y={y0[-1]:.6f}, theta={np.degrees(th0[-1]):.4f} deg"
         )
 
         # Stage 1

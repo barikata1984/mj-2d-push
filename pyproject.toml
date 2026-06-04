@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pusher-slider"
+version = "0.1.0"
+description = "UR5e + Robotiq 2F-85 pusher-slider MuJoCo simulation with a Hogan-2016 MPC"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco>=3.8",
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pillow",
+    "tyro",
+]
+
+[tool.setuptools]
+packages = [
+    "pusher_slider",
+    "pusher_slider.controllers",
+    "pusher_slider.sim",
+    "pusher_slider.analytical",
+    "pusher_slider.viz",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I"]  # isort import ordering

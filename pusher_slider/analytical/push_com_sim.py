@@ -18,17 +18,22 @@ body twist. To translate without rotating you must push along the line through
 the CoM -- so a wrong CoM belief yields a systematic, d-proportional rotation.
 """
 
-import numpy as np
+from pathlib import Path
+
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-C = 0.05          # limit-surface characteristic length [m] (~ radius of gyration of pressure)
-HALF = 0.05       # object half-size [m]
-CONTACT_GEOM = np.array([0.0, -HALF])   # physical contact point in OBJECT (geom-centered) frame
-PUSH_SPEED = 0.02 # m/s (quasi-static, slow)
+from .. import paths
+
+C = 0.05  # limit-surface characteristic length [m] (~ radius of gyration of pressure)
+HALF = 0.05  # object half-size [m]
+CONTACT_GEOM = np.array([0.0, -HALF])  # physical contact point in OBJECT (geom-centered) frame
+PUSH_SPEED = 0.02  # m/s (quasi-static, slow)
 DT = 0.01
-T_PUSH = 1.0      # s
+T_PUSH = 1.0  # s
 
 
 def rot(theta):
@@ -40,15 +45,15 @@ def body_twist(contact_rel_com, vp_body, c=C):
     """Given contact point relative to CoM and pusher velocity (body frame),
     return body twist (vx, vy, omega) under sticking + ellipsoidal LS."""
     px, py = contact_rel_com
-    M = np.array([[1.0 + py * py / c**2, -px * py / c**2],
-                  [-px * py / c**2, 1.0 + px * px / c**2]])
+    M = np.array([[1.0 + py * py / c**2, -px * py / c**2], [-px * py / c**2, 1.0 + px * px / c**2]])
     vx, vy = np.linalg.solve(M, vp_body)
     omega = (px * vy - py * vx) / c**2
     return vx, vy, omega
 
 
-def simulate_push(com, push_dir_world, contact_geom=CONTACT_GEOM,
-                  speed=PUSH_SPEED, dt=DT, t_push=T_PUSH, c=C):
+def simulate_push(
+    com, push_dir_world, contact_geom=CONTACT_GEOM, speed=PUSH_SPEED, dt=DT, t_push=T_PUSH, c=C
+):
     """Forward-integrate object pose for a straight push in a fixed WORLD
     direction. `com` is the TRUE CoM (object frame). Returns final (x,y,theta)
     and the body-twist history (for the estimator)."""
@@ -78,10 +83,12 @@ def estimate_com(true_com, contacts, c=C, noise=0.0, seed=0):
     for cg in contacts:
         for ang in (np.deg2rad(80), np.deg2rad(100), np.deg2rad(60)):
             push_dir = np.array([np.cos(ang), np.sin(ang)])
-            _, hist = simulate_push(true_com, push_dir, contact_geom=cg,
-                                    t_push=DT, c=c)  # single-step probe
+            _, hist = simulate_push(
+                true_com, push_dir, contact_geom=cg, t_push=DT, c=c
+            )  # single-step probe
             _, _, (vx, vy, omega) = hist[0]
-            vx += rng.normal(0, noise); vy += rng.normal(0, noise)
+            vx += rng.normal(0, noise)
+            vy += rng.normal(0, noise)
             omega += rng.normal(0, noise / C)
             A.append([vy, -vx])
             b.append(cg[0] * vy - cg[1] * vx - omega * c**2)
@@ -92,27 +99,29 @@ def estimate_com(true_com, contacts, c=C, noise=0.0, seed=0):
 def induced_rotation(true_com, believed_com, contact_geom=CONTACT_GEOM):
     """Pick the push direction that the controller *believes* gives pure
     translation (line from contact through believed CoM), then run TRUE physics."""
-    push_dir = contact_geom - np.asarray(believed_com)   # contact -> believed CoM... 
-    push_dir = np.asarray(believed_com) - contact_geom    # push toward believed CoM
+    push_dir = np.asarray(believed_com) - contact_geom  # push toward believed CoM
     pose, _ = simulate_push(true_com, push_dir, contact_geom=contact_geom)
     return abs(pose[2])  # |Delta theta| over the push
 
 
-def main():
-    offsets = np.linspace(0.0, 0.03, 7)          # true CoM offset d along x [m]
-    contacts = [np.array([0.0, -HALF]), np.array([HALF, -HALF]),
-                np.array([-HALF, -HALF])]
+def main(out_dir: Path | None = None):
+    out_dir = Path(out_dir) if out_dir is not None else paths.results_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    offsets = np.linspace(0.0, 0.03, 7)  # true CoM offset d along x [m]
+    contacts = [np.array([0.0, -HALF]), np.array([HALF, -HALF]), np.array([-HALF, -HALF])]
 
     rows = []
     for d in offsets:
         true_com = np.array([d, 0.0])
         com_hat = estimate_com(true_com, contacts, noise=1e-4)
-        dth_A = np.rad2deg(induced_rotation(true_com, np.array([0.0, 0.0])))   # geom center
-        dth_B = np.rad2deg(induced_rotation(true_com, com_hat))               # estimated CoM
-        dth_C = np.rad2deg(induced_rotation(true_com, true_com))              # true CoM
+        dth_A = np.rad2deg(induced_rotation(true_com, np.array([0.0, 0.0])))  # geom center
+        dth_B = np.rad2deg(induced_rotation(true_com, com_hat))  # estimated CoM
+        dth_C = np.rad2deg(induced_rotation(true_com, true_com))  # true CoM
         rows.append((d, np.linalg.norm(com_hat - true_com), dth_A, dth_B, dth_C))
-        print(f"d={d*1000:5.1f} mm | CoM err={1000*rows[-1][1]:5.2f} mm | "
-              f"dtheta  A(geom)={dth_A:6.2f}  B(est)={dth_B:6.2f}  C(true)={dth_C:6.2f} deg")
+        print(
+            f"d={d * 1000:5.1f} mm | CoM err={1000 * rows[-1][1]:5.2f} mm | "
+            f"dtheta  A(geom)={dth_A:6.2f}  B(est)={dth_B:6.2f}  C(true)={dth_C:6.2f} deg"
+        )
 
     rows = np.array(rows)
     plt.figure(figsize=(6, 4))
@@ -122,9 +131,12 @@ def main():
     plt.xlabel("true CoM offset d [mm]")
     plt.ylabel(r"induced rotation $|\Delta\theta|$ [deg]")
     plt.title("CoM-belief vs induced rotation in a 'pure-translation' push")
-    plt.legend(); plt.grid(alpha=0.3); plt.tight_layout()
-    plt.savefig("/mnt/user-data/outputs/induced_rotation.png", dpi=140)
-    print("\nSaved plot -> induced_rotation.png")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    out_path = out_dir / "induced_rotation.png"
+    plt.savefig(out_path, dpi=140)
+    print(f"\nSaved plot -> {out_path}")
 
 
 if __name__ == "__main__":

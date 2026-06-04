@@ -15,7 +15,6 @@ Metrics: final |Delta-theta|, x-drift, success, theta oscillation.
 from __future__ import annotations
 
 import re
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,14 +26,12 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/workspace")
-from pusher_slider_mpc import PusherSliderMPC
-from run_stage1 import (
-    Config,
-    Log,
+from pusher_slider import paths
+from pusher_slider.config import SimConfig
+from pusher_slider.controllers import PusherSliderMPC
+from pusher_slider.kinematics import (
     damped_pinv,
     get_jacobian,
-    get_pusher_slider_contact_force,
     pusher_in_slider_body,
     slider_pose_from_data,
 )
@@ -55,7 +52,7 @@ DEFAULT_DIAGINERTIA = np.array([0.000394, 0.000525, 0.000164])
 # Uniform c
 C_UNIFORM = np.sqrt((SLIDER_A**2 + SLIDER_B**2) / 12.0)
 
-OUT_DIR = Path("/workspace/results/exp_pressure_distribution")
+OUT_DIR = paths.results_dir() / "exp_pressure_distribution"
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +96,9 @@ def read_base_xml() -> str:
     """Read scene XML with the include inlined so from_xml_string works."""
     import re as _re
 
-    with open("/workspace/stage1_scene.xml") as f:
+    with open(paths.scene_path("stage1_scene.xml")) as f:
         scene = f.read()
-    with open("/workspace/ur5e_with_pusher.xml") as f:
+    with open(paths.scene_path("legacy/ur5e_with_pusher.xml")) as f:
         robot = f.read()
 
     # Inline: replace <include file="ur5e_with_pusher.xml"/> with robot content
@@ -117,7 +114,7 @@ def read_base_xml() -> str:
     # Set absolute meshdir
     scene = scene.replace(
         '<compiler angle="radian" autolimits="true"/>',
-        '<compiler angle="radian" autolimits="true" meshdir="/workspace/assets"/>',
+        f'<compiler angle="radian" autolimits="true" meshdir="{paths.ASSETS_DIR}"/>',
     )
 
     # Inject robot parts into scene
@@ -178,7 +175,7 @@ def modify_xml_for_case(xml: str, case: PressureCase) -> str:
 def run_push(
     xml_string: str,
     c_value: float,
-    cfg: Config | None = None,
+    cfg: SimConfig | None = None,
 ) -> dict:
     """Run a full MPC push and return trajectory data.
 
@@ -191,7 +188,7 @@ def run_push(
         dict with keys: time, slider_x, slider_y, slider_theta, success.
     """
     if cfg is None:
-        cfg = Config()
+        cfg = SimConfig()
 
     m = mujoco.MjModel.from_xml_string(xml_string)
     d = mujoco.MjData(m)
@@ -206,15 +203,13 @@ def run_push(
     mujoco.mj_forward(m, d)
 
     ctrl = d.ctrl[:6].copy()
-    substeps = int(cfg.mpc_dt / m.opt.timestep)
+    substeps = int(cfg.mpc.dt / m.opt.timestep)
 
     # --- Phase 0: approach ---
     slider_pos_init, _ = slider_pose_from_data(d, slider_body_id)
     tip_init = d.site_xpos[tip_site_id].copy()
     slider_face_y = slider_pos_init[1] - 0.03
-    approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
-    )
+    approach_target = np.array([slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]])
 
     for _ in range(200):
         mujoco.mj_forward(m, d)
@@ -222,12 +217,12 @@ def run_push(
         err = approach_target - tip
         if np.linalg.norm(err) < 0.001:
             break
-        step = err * cfg.ik_gain
+        step = err * cfg.robot.ik_gain
         step_norm = np.linalg.norm(step)
-        if step_norm > cfg.ik_max_step:
-            step *= cfg.ik_max_step / step_norm
+        if step_norm > cfg.robot.ik_max_step:
+            step *= cfg.robot.ik_max_step / step_norm
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ step
+        dq = damped_pinv(J, cfg.robot.damping) @ step
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
         for __ in range(substeps):
@@ -241,12 +236,12 @@ def run_push(
         mass=SLIDER_MASS,
         mu_pusher=0.3,
         mu_ground=0.35,
-        dt=cfg.mpc_dt,
-        horizon_N=cfg.mpc_horizon,
+        dt=cfg.mpc.dt,
+        horizon_N=cfg.mpc.horizon,
         Q_weights=np.array([30.0, 10.0, 15.0, 0.1]),
         R_weights=np.array([0.1, 0.1]),
         Q_terminal_scale=10.0,
-        v_max=cfg.mpc_v_max,
+        v_max=cfg.mpc.v_max,
         contact_face="-y",
     )
     # Override c with the desired value
@@ -273,16 +268,16 @@ def run_push(
         slider_ys.append(slider_pos[1])
         slider_thetas.append(slider_theta)
 
-        if slider_pos[1] >= cfg.y_goal:
+        if slider_pos[1] >= cfg.push.y_goal:
             success = True
             break
-        if d.time - t_start > cfg.max_sim_time:
+        if d.time - t_start > cfg.push.max_sim_time:
             break
 
         pusher_body_clamped = np.array([np.clip(pusher_body[0], -0.038, 0.038), -0.03])
         target_y_now = min(
-            slider_pos[1] + cfg.push_speed * cfg.mpc_dt * cfg.mpc_horizon,
-            cfg.y_goal,
+            slider_pos[1] + cfg.push.push_speed * cfg.mpc.dt * cfg.mpc.horizon,
+            cfg.push.y_goal,
         )
         current_target = np.array([0.0, target_y_now, 0.0])
 
@@ -293,7 +288,7 @@ def run_push(
                 target_pose=current_target,
             )
         except Exception:
-            vn, vt = cfg.push_speed, 0.0
+            vn, vt = cfg.push.push_speed, 0.0
 
         vn = max(vn, 0.005)
         v_world_xy = mpc.contact_to_world(vn, vt, slider_theta)
@@ -301,7 +296,7 @@ def run_push(
         v_des_3d = np.array([v_world_xy[0], v_world_xy[1], 5.0 * z_error])
 
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
+        dq = damped_pinv(J, cfg.robot.damping) @ (v_des_3d * cfg.mpc.dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
 
@@ -486,15 +481,15 @@ def print_summary_table(all_metrics: dict) -> None:
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    cfg = Config()
+    cfg = SimConfig()
     # Speed up: shorter push, faster speed, smaller horizon, larger MPC dt
-    cfg.push_speed = 0.06
-    cfg.y_start = 0.235
-    cfg.y_goal = 0.50
-    cfg.max_sim_time = 15.0
-    cfg.mpc_dt = 0.05
-    cfg.mpc_horizon = 5
-    cfg.mpc_v_max = 0.12
+    cfg.push.push_speed = 0.06
+    cfg.push.y_start = 0.235
+    cfg.push.y_goal = 0.50
+    cfg.push.max_sim_time = 15.0
+    cfg.mpc.dt = 0.05
+    cfg.mpc.horizon = 5
+    cfg.mpc.v_max = 0.12
 
     base_xml = read_base_xml()
 

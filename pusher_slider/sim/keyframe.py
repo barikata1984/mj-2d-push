@@ -1,9 +1,17 @@
 """Compute a ready keyframe for the UR5e + Robotiq 2F-85 gripper.
 
-Uses damped-pseudoinverse IK to place the gripper pinch site just behind
-the slider's -y face, at the correct height on the table surface.
-The gripper is physically closed via simulation before IK so that
-equality constraints settle the 4-bar linkage.
+Uses 6-DOF damped-pseudoinverse IK (position + tool0 orientation) to place
+the gripper as a vertical pusher: gripper_pinch behind the slider's -y face
+on the work surface, with tool0 held straight down (R_TOOL0_DES) so the closed
+finger axis is perpendicular to the push direction. The orientation constraint
+and Jacobian helpers are shared with run_stage1 so the generated keyframe and
+the runtime execution layer agree on the vertical-pusher convention.
+
+The pinch is retracted so the closed pad front stops ~7 mm clear of the slider
+face; otherwise the gravity settle at the start of the push run rams the slider.
+
+The gripper is physically closed via simulation before IK so that the equality
+constraints settle the 4-bar linkage.
 
 Gravity handling:
   The UR5e PD actuators (gain=2000, bias1=-2000) produce ~6mm tip sag
@@ -18,16 +26,13 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
+from .. import paths
+from ..kinematics import get_jacobian6, orientation_error
+
 
 def damped_pinv(J: np.ndarray, damping: float = 1e-3) -> np.ndarray:
     JJT = J @ J.T
     return J.T @ np.linalg.inv(JJT + damping**2 * np.eye(JJT.shape[0]))
-
-
-def get_jacobian(m: mujoco.MjModel, d: mujoco.MjData, site_id: int) -> np.ndarray:
-    jacp = np.zeros((3, m.nv))
-    mujoco.mj_jacSite(m, d, jacp, None, site_id)
-    return jacp[:, :6]  # Only arm joint columns
 
 
 def close_gripper_sim(
@@ -52,15 +57,21 @@ def solve_ik(
     m: mujoco.MjModel,
     d: mujoco.MjData,
     tip_site_id: int,
+    ori_site_id: int,
     target_pos: np.ndarray,
     q_init: np.ndarray,
     gripper_qpos: np.ndarray,
     max_iter: int = 2000,
-    tol: float = 5e-4,
+    pos_tol: float = 5e-4,
+    ori_tol: float = 1e-3,
     gain: float = 1.0,
     max_step: float = 0.05,
     damping: float = 1e-3,
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float, float]:
+    """6-DOF IK: drive gripper_pinch to target_pos and tool0 to R_TOOL0_DES.
+
+    Returns (arm_qpos, pos_err_m, ori_err_rad).
+    """
     d.qpos[:6] = q_init.copy()
     d.qpos[6:14] = gripper_qpos.copy()
     d.ctrl[:6] = q_init.copy()
@@ -69,19 +80,22 @@ def solve_ik(
 
     for i in range(max_iter):
         tip = d.site_xpos[tip_site_id].copy()
-        err = target_pos - tip
-        dist = np.linalg.norm(err)
-        if dist < tol:
-            print(f"  IK converged at iter {i}, error={dist:.6f}m")
+        perr = target_pos - tip
+        oerr = orientation_error(d, ori_site_id)
+        pdist = np.linalg.norm(perr)
+        odist = np.linalg.norm(oerr)
+        if pdist < pos_tol and odist < ori_tol:
+            print(f"  IK converged at iter {i}, pos_err={pdist:.6f}m ori_err={odist:.6f}")
             break
 
-        step = err * gain
-        step_norm = np.linalg.norm(step)
-        if step_norm > max_step:
-            step *= max_step / step_norm
+        pstep = perr * gain
+        pn = np.linalg.norm(pstep)
+        if pn > max_step:
+            pstep *= max_step / pn
+        ostep = np.clip(oerr * gain, -0.1, 0.1)
 
-        J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, damping) @ step
+        J = get_jacobian6(m, d, tip_site_id, ori_site_id)
+        dq = damped_pinv(J, damping) @ np.concatenate([pstep, ostep])
         d.qpos[:6] += dq
         d.qpos[6:14] = gripper_qpos.copy()
         d.ctrl[:6] = d.qpos[:6].copy()
@@ -89,8 +103,9 @@ def solve_ik(
         mujoco.mj_forward(m, d)
 
     tip_final = d.site_xpos[tip_site_id].copy()
-    final_err = np.linalg.norm(target_pos - tip_final)
-    return d.qpos[:6].copy(), final_err
+    pos_err = np.linalg.norm(target_pos - tip_final)
+    ori_err = np.linalg.norm(orientation_error(d, ori_site_id))
+    return d.qpos[:6].copy(), pos_err, ori_err
 
 
 def compute_gravity_ctrl(
@@ -121,10 +136,11 @@ def compute_gravity_ctrl(
 
 
 def main() -> None:
-    m = mujoco.MjModel.from_xml_path("/workspace/stage1_scene.xml")
+    m = mujoco.MjModel.from_xml_path(paths.scene_path())
     d = mujoco.MjData(m)
 
     tip_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "gripper_pinch")
+    ori_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "attachment_site")
     base_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "base")
 
     print(f"Model nq={m.nq}, nv={m.nv}, nu={m.nu}")
@@ -134,14 +150,23 @@ def main() -> None:
     print("\nClosing gripper via simulation...")
     gripper_qpos = close_gripper_sim(m, d)
 
-    # Target: pinch site just behind slider's -y face (slider on the work surface)
+    # Target: pinch retracted so the closed pad front stops ~7 mm clear of the
+    # slider's -y face. gripper_pinch sits PINCH_TO_PAD_FRONT behind the pad
+    # front, so pinch target = face - CLEARANCE - PINCH_TO_PAD_FRONT.
+    # (face 0.470 - 0.007 - 0.011 = 0.452). This keeps the gravity settle in
+    # run_stage1 from ramming the slider before the approach phase.
     slider_y = 0.5
     slider_half_b = 0.03
-    target_tip = np.array([0.0, slider_y - slider_half_b - 0.001, 0.342])
+    slider_face_y = slider_y - slider_half_b
+    PINCH_TO_PAD_FRONT = 0.011
+    CLEARANCE = 0.007
+    target_tip = np.array([0.0, slider_face_y - CLEARANCE - PINCH_TO_PAD_FRONT, 0.342])
     print(f"\nTarget tip position: {target_tip}")
 
-    # Step 2: Multi-start IK
+    # Step 2: Multi-start IK. The first seed is the known vertical-pusher config
+    # (recovers the tool-down branch reliably); the rest broaden the basin.
     candidates = [
+        np.array([1.1803, -1.6653, 2.4917, -2.3972, -1.5708, -0.3905]),
         np.array([0.0, -1.0, 1.5, -2.0, -1.5708, 0.0]),
         np.array([0.5, -1.2, 1.8, -2.1, -1.5708, 0.0]),
         np.array([-0.5, -1.0, 1.5, -2.0, -1.5708, 0.0]),
@@ -161,23 +186,20 @@ def main() -> None:
     ]
 
     best_q = None
-    best_err = np.inf
+    best_score = np.inf
 
     for i, q0 in enumerate(candidates):
         mujoco.mj_resetData(m, d)
-        q, err = solve_ik(m, d, tip_site_id, target_tip, q0, gripper_qpos)
-        print(f"  Candidate {i}: err={err:.6f}m, qpos={np.round(q, 4)}")
-        if err < best_err:
-            best_err = err
+        q, perr, oerr = solve_ik(m, d, tip_site_id, ori_site_id, target_tip, q0, gripper_qpos)
+        # Score weights orientation (rad) and position (m) together so a candidate
+        # that nails the target but tips the tool over is not selected.
+        score = perr + 0.1 * oerr
+        print(f"  Candidate {i}: pos_err={perr:.6f}m ori_err={oerr:.6f}rad qpos={np.round(q, 4)}")
+        if score < best_score:
+            best_score = score
             best_q = q.copy()
 
-    if best_err > 0.002:
-        print(f"\nWARNING: Best IK error is {best_err:.4f}m, may need manual tuning")
-    else:
-        print(f"\nBest IK error: {best_err:.6f}m")
-    print(f"Best qpos (IK): {np.round(best_q, 4)}")
-
-    # FK verification
+    # Re-evaluate the winner's individual errors for reporting.
     mujoco.mj_resetData(m, d)
     d.qpos[:6] = best_q
     d.qpos[6:14] = gripper_qpos
@@ -185,8 +207,14 @@ def main() -> None:
     d.ctrl[6] = 255.0
     mujoco.mj_forward(m, d)
     tip_fk = d.site_xpos[tip_site_id].copy()
+    best_perr = np.linalg.norm(target_tip - tip_fk)
+    best_oerr = np.linalg.norm(orientation_error(d, ori_site_id))
+    if best_perr > 0.002 or best_oerr > 0.01:
+        print(f"\nWARNING: best pos_err={best_perr:.4f}m ori_err={best_oerr:.4f}rad")
+    else:
+        print(f"\nBest pos_err={best_perr:.6f}m ori_err={best_oerr:.6f}rad")
+    print(f"Best qpos (IK): {np.round(best_q, 4)}")
     print(f"FK verification - tip pos: {tip_fk}")
-    print(f"FK verification - error: {np.linalg.norm(target_tip - tip_fk):.6f}m")
 
     # Step 3: Analytical gravity compensation for ctrl
     ctrl_arm = compute_gravity_ctrl(m, d, best_q, gripper_qpos)
@@ -205,9 +233,7 @@ def main() -> None:
     tip_1s = d.site_xpos[tip_site_id].copy()
     sag_err = np.linalg.norm(target_tip - tip_1s)
     print(f"  Tip after 1s: {tip_1s}")
-    print(
-        f"  Sag from target: {sag_err * 1000:.1f}mm (PD steady-state droop, handled by MPC)"
-    )
+    print(f"  Sag from target: {sag_err * 1000:.1f}mm (PD steady-state droop, handled by MPC)")
 
     # Output keyframe strings
     # qpos = IK solution (FK gives exact target position at t=0)

@@ -41,6 +41,13 @@ shell = "docker compose -f .devcontainer/docker-compose.yaml exec dev zsh"
 down = "docker compose -f .devcontainer/docker-compose.yaml down"
 logs = "docker compose -f .devcontainer/docker-compose.yaml logs -f"
 
+# In-container simulation entrypoints (run inside the pixi env).
+setup = "bash scripts/setup_assets.sh"
+push = "python scripts/run_push.py"
+keyframe = "python scripts/make_keyframe.py"
+render = "python scripts/render_video.py"
+analytical = "python scripts/analytical_push.py"
+
 [dependencies]
 # --- Python interpreter (pinned major.minor) ---
 python = "3.12.*"
@@ -64,4 +71,7 @@ ffmpeg = ">=8.1.1,<9"
 pillow = ">=12.2.0,<13"
 
 [pypi-dependencies]
-# Add PyPI-only packages here (none by default).
+# Typed CLI generated from the SimConfig dataclasses (scripts/run_push.py).
+tyro = "*"
+# The project itself, installed editable so `import pusher_slider` works anywhere.
+pusher-slider = { path = ".", editable = true }

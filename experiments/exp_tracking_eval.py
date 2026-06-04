@@ -10,12 +10,11 @@ Trajectories:
   c. S-curve:         y=0.235->0.78, x = 0.03*sin(2*pi*(y-y0)/(y1-y0))
   d. With rotation:   y=0.235->0.78, theta ramps 0->10 deg
 
-Output: /workspace/results/exp_tracking_eval/
+Output: results/exp_tracking_eval/
 """
 
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,16 +26,16 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/workspace")
-from pusher_slider_mpc import PusherSliderMPC
-from run_stage1 import (
-    Config,
+from pusher_slider import paths
+from pusher_slider.config import SimConfig
+from pusher_slider.controllers import PusherSliderMPC
+from pusher_slider.kinematics import (
     damped_pinv,
     get_jacobian,
-    move_tip_to,
     pusher_in_slider_body,
     slider_pose_from_data,
 )
+from pusher_slider.sim.runner import move_tip_to
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -44,7 +43,7 @@ from run_stage1 import (
 Y_START = 0.235
 Y_GOAL = 0.78
 Y_RANGE = Y_GOAL - Y_START
-OUTPUT_DIR = Path("/workspace/results/exp_tracking_eval")
+OUTPUT_DIR = paths.results_dir() / "exp_tracking_eval"
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +182,7 @@ def compute_metrics(name: str, log: TrackingLog, dt: float) -> Metrics:
 def run_trajectory(
     traj_name: str,
     ref_fn: callable,
-    cfg: Config,
+    cfg: SimConfig,
 ) -> TrackingLog:
     """Run a full MuJoCo simulation with MPC tracking a given reference trajectory."""
     m = mujoco.MjModel.from_xml_path(cfg.scene_path)
@@ -199,18 +198,14 @@ def run_trajectory(
     mujoco.mj_forward(m, d)
 
     ctrl = d.ctrl[:6].copy()
-    substeps = int(cfg.mpc_dt / m.opt.timestep)
+    substeps = int(cfg.mpc.dt / m.opt.timestep)
 
     # --- Phase 0: Approach ---
     slider_pos_init, _ = slider_pose_from_data(d, slider_body_id)
     tip_init = d.site_xpos[tip_site_id].copy()
     slider_face_y = slider_pos_init[1] - 0.03
-    approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
-    )
-    ctrl = move_tip_to(
-        m, d, tip_site_id, approach_target, ctrl, cfg, None, max_steps=200
-    )
+    approach_target = np.array([slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]])
+    ctrl = move_tip_to(m, d, tip_site_id, approach_target, ctrl, cfg, None, max_steps=200)
     mujoco.mj_forward(m, d)
 
     # --- Phase 1: MPC push ---
@@ -219,12 +214,12 @@ def run_trajectory(
         mass=1.05,
         mu_pusher=0.3,
         mu_ground=0.35,
-        dt=cfg.mpc_dt,
-        horizon_N=cfg.mpc_horizon,
+        dt=cfg.mpc.dt,
+        horizon_N=cfg.mpc.horizon,
         Q_weights=np.array([30.0, 10.0, 15.0, 0.1]),
         R_weights=np.array([0.1, 0.1]),
         Q_terminal_scale=10.0,
-        v_max=cfg.mpc_v_max,
+        v_max=cfg.mpc.v_max,
         contact_face="-y",
     )
 
@@ -251,11 +246,11 @@ def run_trajectory(
         log.ref_y.append(ref_y)
         log.ref_theta.append(ref_theta)
 
-        if slider_pos[1] >= cfg.y_goal:
+        if slider_pos[1] >= cfg.push.y_goal:
             log.vn.append(0.0)
             log.vt.append(0.0)
             break
-        if d.time - t_start > cfg.max_sim_time:
+        if d.time - t_start > cfg.push.max_sim_time:
             log.vn.append(0.0)
             log.vt.append(0.0)
             break
@@ -264,7 +259,8 @@ def run_trajectory(
 
         # MPC target: current reference pose (look ahead by horizon for y)
         target_y_now = min(
-            slider_pos[1] + cfg.push_speed * cfg.mpc_dt * cfg.mpc_horizon, cfg.y_goal
+            slider_pos[1] + cfg.push.push_speed * cfg.mpc.dt * cfg.mpc.horizon,
+            cfg.push.y_goal,
         )
         # Get reference at the look-ahead y for x and theta
         ref_x_ahead, _, ref_theta_ahead = ref_fn(target_y_now)
@@ -278,7 +274,7 @@ def run_trajectory(
             )
         except Exception as e:
             print(f"  MPC failed at step {step_count} ({traj_name}): {e}")
-            vn, vt = cfg.push_speed, 0.0
+            vn, vt = cfg.push.push_speed, 0.0
 
         vn = max(vn, 0.005)
         log.vn.append(vn)
@@ -289,7 +285,7 @@ def run_trajectory(
         v_des_3d = np.array([v_world_xy[0], v_world_xy[1], 5.0 * z_error])
 
         J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
+        dq = damped_pinv(J, cfg.robot.damping) @ (v_des_3d * cfg.mpc.dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
 
@@ -429,9 +425,7 @@ def plot_metrics_bars(
 
         for s_idx, (sub_name, values) in enumerate(sub_metrics.items()):
             offset = (s_idx - (n_sub - 1) / 2) * width
-            bars = ax.bar(
-                x_pos + offset, values, width, label=sub_name, color=colors[s_idx]
-            )
+            bars = ax.bar(x_pos + offset, values, width, label=sub_name, color=colors[s_idx])
             for bar, val in zip(bars, values):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
@@ -508,7 +502,7 @@ def print_summary(results: dict[str, tuple[TrackingLog, Metrics]]) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    cfg = Config()
+    cfg = SimConfig()
 
     results: dict[str, tuple[TrackingLog, Metrics]] = {}
 
@@ -522,7 +516,7 @@ def main() -> None:
         wall_time = time.monotonic() - t0
         print(f"  Wall time: {wall_time:.1f}s")
 
-        metrics = compute_metrics(traj_name, log, cfg.mpc_dt)
+        metrics = compute_metrics(traj_name, log, cfg.mpc.dt)
         results[traj_name] = (log, metrics)
 
     print_summary(results)

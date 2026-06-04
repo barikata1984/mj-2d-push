@@ -37,15 +37,15 @@ import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 
-sys.path.insert(0, "/workspace")
-from push_com_sim import estimate_com
-from pusher_slider_mpc import PusherSliderMPC
+from pusher_slider import paths
+from pusher_slider.analytical.push_com_sim import estimate_com
+from pusher_slider.controllers import PusherSliderMPC
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-SCENE_PATH = Path("/workspace/stage1_scene.xml")
-RESULTS_DIR = Path("/workspace/results/exp_com_abc")
+SCENE_PATH = Path(paths.scene_path("stage1_scene.xml"))
+RESULTS_DIR = paths.results_dir() / "exp_com_abc"
 
 # Simulation parameters (tuned for batch experiment speed)
 PUSH_SPEED = 0.04
@@ -93,9 +93,7 @@ def modify_scene_xml(com_offset_x: float) -> str:
 # ---------------------------------------------------------------------------
 # Helpers (from run_stage1.py)
 # ---------------------------------------------------------------------------
-def slider_pose_from_data(
-    d: mujoco.MjData, slider_body_id: int
-) -> tuple[np.ndarray, float]:
+def slider_pose_from_data(d: mujoco.MjData, slider_body_id: int) -> tuple[np.ndarray, float]:
     """Extract slider (x, y, z) position and yaw angle theta."""
     pos = d.xpos[slider_body_id].copy()
     quat = d.xquat[slider_body_id].copy()
@@ -200,9 +198,7 @@ def run_push_trial(
 
     # Phase 0: Approach
     slider_face_y = slider_pos_init[1] - SLIDER_HALF_Y
-    approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]]
-    )
+    approach_target = np.array([slider_pos_init[0], slider_face_y - 0.0005, tip_init[2]])
     ctrl = move_tip_to(m, d, tip_site_id, approach_target, ctrl, max_steps=200)
     mujoco.mj_forward(m, d)
 
@@ -245,9 +241,7 @@ def run_push_trial(
         if d.time - t_start > MAX_SIM_TIME:
             break
 
-        pusher_body_clamped = np.array(
-            [np.clip(pusher_body[0], -0.038, 0.038), -SLIDER_HALF_Y]
-        )
+        pusher_body_clamped = np.array([np.clip(pusher_body[0], -0.038, 0.038), -SLIDER_HALF_Y])
 
         target_y_now = min(slider_pos[1] + PUSH_SPEED * MPC_DT * MPC_HORIZON, Y_GOAL)
         current_target = np.array([target_x, target_y_now, 0.0])

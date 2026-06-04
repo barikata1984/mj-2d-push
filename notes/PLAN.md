@@ -26,8 +26,23 @@ session_summary.md §3.7 のラダーに従う:
 - 結果: base (0,0.4)→(0,0.8) の 2D 押しが安定成功 (接触維持・姿勢保持・暴走なし)
 - 残ドリフト解消 (2026-06-04): x −1.5mm, θ −0.01° のほぼ直進押しを達成. 真因は接線接触座標の汚染 (px_body に法線スタンドオフが漏れる) による MPC の collapse と, keyframe 事前貫入による settle ラム. それぞれ px_body=0 供給と keyframe 後退で対処
 
-残課題:
-- `compute_keyframe.py` を tool-down 6-DOF 生成に同期する (現状の retract keyframe はインライン IK で生成)
+- `compute_keyframe.py` を tool-down 6-DOF 生成に同期済み (2026-06-04): `solve_ik` を 6-DOF (位置+tool0 姿勢) 化し IK ヘルパを共有. retract keyframe (pinch y=0.452) を再現生成可能
+
+残課題: なし (Stage 2 のグリッパ統合・鉛直 pusher 化・残ドリフト解消・keyframe 生成器同期まで完了)
+
+## リポジトリ構成のモジュラー化 (2026-06-04)
+
+フラットな単一ディレクトリ (ルート直下に ~10 個の .py, `/workspace` ハードコード多数,
+設定埋め込み) から, import パッケージ `pusher_slider/` へリファクタ:
+
+- 機能分離: `config`(tyro), `kinematics`, `io`, `controllers`(Protocol+registry), `sim`(runner/keyframe), `analytical`, `viz`(grid_video/plots)
+- パス解決を `paths` に集約しリポジトリ相対化 (`/workspace` 依存を除去)
+- 設定を `tyro` で CLI 化し, run ごとに `config.json` を保存して再現性を確保
+- `scenes/` に XML を集約 (menagerie 流), `scripts/` に CLI エントリ
+- 拡張ポイント: 新コントローラは `@register_controller` で追加可能 (Hogan MPC 本体は不変)
+
+設計判断の根拠は web 調査 (PyPA src-vs-flat, tyro, robosuite/CleanRL/menagerie 構成) に基づく.
+src/ レイアウトや entry_points プラグイン機構は 1-dev リポジトリには過剰として採用せず.
 
 ## Stage 3 への移行条件
 

@@ -20,6 +20,26 @@ so that the face normal aligns with the paper's primary push axis (+x).
 Control: u = [vn, vt]^T
   vn: pusher velocity along the face inward normal (>= 0 for contact)
   vt: pusher velocity along the face tangent
+
+Paper mapping (Hogan & Rodriguez 2016, arXiv:1611.08268):
+  - quasi-static limit-surface model ............. paper sec. 4.2-4.3
+  - limit-surface parameter c .................... paper sec. 4.3   -> _limit_surface_c
+  - motion cone boundaries gamma_t, gamma_b ...... paper Eqs. (2),(3) -> _motion_cone
+  - contact-mode conditions (stick/up/down) ...... paper Eqs. (4)-(7) -> _select_mode
+  - hybrid motion equations x_dot = f_j(x,u) ..... paper Eq. (8)    -> _compute_B
+        (Q_ls, b_j, c_j, P_j, C(theta) all appear in _compute_B)
+  - state x = [q_s^T, p_y]^T ..................... paper Eq. (8)    -> compute_control
+  - MPC finite-horizon cost J .................... paper sec. 5, Eq. (16) -> _solve_single_schedule
+  - Family of Modes (M1/M2/M3) ................... paper sec. 5.2  -> _solve_fom_qp
+
+Known deviations from the paper (see the per-method notes):
+  1. c uses the radius of gyration sqrt((a^2+b^2)/12), not the paper's
+     c = m_max/f_max = (1/A)integral|r|dA (a common, slightly different approximation).
+  2. Prediction uses A=0 with B frozen at the current state and re-linearised every
+     MPC call, instead of the paper's linearisation about a nominal trajectory
+     (time-varying A_j(t), B_j(t); paper sec. 4.6, Eq. (9)).
+  3. The MIQP (paper sec. 5.1) is not implemented; only the FOM reduction (sec. 5.2),
+     which is the paper's real-time method.
 """
 
 from __future__ import annotations
@@ -113,8 +133,21 @@ class PusherSliderMPC:
         self.Q_N = Q_terminal_scale * self.Q
 
     def _limit_surface_c(self) -> float:
-        """Compute limit surface parameter c (radius of gyration for uniform pressure)."""
+        """Limit-surface characteristic length c (paper sec. 4.3).
+
+        The paper defines c = m_max / f_max = (1/A) integral |r| dA (the mean
+        distance of area elements from the CoM; f_max = mu_g m g, m_max =
+        mu_g m g (1/A) integral |r| dA). Here we instead use the radius of
+        gyration sqrt((a^2 + b^2)/12) = sqrt((1/A) integral r^2 dA), the common
+        ellipsoidal-LS approximation. The two differ (first vs second moment of
+        |r|) but both serve as the LS length scale; deviation #1 in the module
+        docstring.
+        """
         return np.sqrt((self.a**2 + self.b**2) / 12.0)
+
+    # Motion cone (paper Eqs. 2-3), rederived from the ellipsoidal limit surface
+    # with px = normal offset, py = tangential offset. A correct cone always
+    # straddles zero (gamma_b < 0 < gamma_t), since a pure normal push always sticks.
 
     def _motion_cone(self, px_a: float, py_a: float) -> tuple[float, float]:
         """Compute motion cone boundaries in the contact-aligned frame.
@@ -128,9 +161,9 @@ class PusherSliderMPC:
         """
         mu = self.mu
         c2 = self.c**2
-        px, py = px_a, py_a
-        gamma_t = (mu * c2 - px * py + mu * py**2) / (c2 + px**2 + mu * px * py)
-        gamma_b = (-mu * c2 - px * py - mu * py**2) / (c2 + px**2 - mu * px * py)
+        px, py = px_a, py_a  # px = normal offset, py = tangential offset
+        gamma_t = (mu * c2 - px * py + mu * px**2) / (c2 + py**2 - mu * px * py)
+        gamma_b = (-mu * c2 - px * py - mu * px**2) / (c2 + py**2 + mu * px * py)
         return gamma_t, gamma_b
 
     def _rotation_matrix(self, theta: float) -> np.ndarray:
@@ -143,10 +176,12 @@ class PusherSliderMPC:
         p_a = self.R_face @ np.array([px_body, py_body])
         return float(p_a[0]), float(p_a[1])
 
-    def _compute_B(
-        self, theta: float, px_body: float, py_body: float, mode: int
-    ) -> np.ndarray:
+    def _compute_B(self, theta: float, px_body: float, py_body: float, mode: int) -> np.ndarray:
         """Compute B matrix (4x2) for x_dot = B @ [vn, vt] (contact-aligned frame).
+
+        This is the per-mode dynamics f_j(x, u) = [C^T Q P_j; b_j; c_j] u of
+        paper Eq. (8). Q_ls below is the paper's Q (limit-surface map), and
+        P_j / b_j / c_j are the mode-dependent blocks (j: 1=stick, 2=up, 3=down).
 
         Internally:
           1. Rotate contact point to aligned frame: (px_a, py_a) = R_face @ (px, py)
@@ -168,7 +203,7 @@ class PusherSliderMPC:
         c2 = self.c**2
         denom = c2 + px_a**2 + py_a**2
 
-        # Q_ls in aligned frame
+        # Q_ls = paper's Q (Eq. 8), the ellipsoidal limit-surface velocity map
         Q_ls = (
             np.array(
                 [
@@ -181,6 +216,7 @@ class PusherSliderMPC:
 
         gamma_t, gamma_b = self._motion_cone(px_a, py_a)
 
+        # P_j, b_j, c_j per mode, exactly as in paper Eq. (8).
         if mode == 1:  # sticking
             P = np.eye(2)
             b_vec = np.array([(-py_a) / denom, px_a / denom])
@@ -234,8 +270,10 @@ class PusherSliderMPC:
     ) -> int:
         """Determine contact mode from aligned-frame velocity and motion cone.
 
-        The motion cone constrains vt/vn in the aligned frame. Points at the
-        cone boundary (within tol) are classified as sticking.
+        Implements the contact-mode conditions of paper Eqs. (4)-(7):
+        sticking when gamma_b vn <= vt <= gamma_t vn (Eqs. 4-5), sliding up when
+        vt > gamma_t vn (Eq. 6), sliding down when vt < gamma_b vn (Eq. 7).
+        Points at the cone boundary (within tol) are classified as sticking.
 
         Returns:
             mode: 1=stick, 2=slide_up, 3=slide_down.
@@ -255,6 +293,14 @@ class PusherSliderMPC:
         self, x0: np.ndarray, px_a: float, schedule: list[int]
     ) -> tuple[np.ndarray, np.ndarray]:
         """Build stacked prediction matrices for the linear dynamics.
+
+        DEVIATION from paper sec. 4.6 / Eq. (9): the paper linearises Eq. (8)
+        about a nominal trajectory x*(t), u*(t), giving time-varying A_j(t),
+        B_j(t). Here we drop the state Jacobian (A = 0) and freeze B at the
+        CURRENT state for the whole horizon, re-linearising every MPC call
+        (deviation #2 in the module docstring). The receding-horizon re-solve
+        bounds the resulting error, but within-horizon state variation of B is
+        ignored.
 
         Since A=0, x_{k+1} = x_k + dt*B_k*u_k.
         Unrolling: x_{k+1} = x_0 + dt * sum_{j=0}^{k} B_j * u_j.
@@ -299,7 +345,11 @@ class PusherSliderMPC:
     ) -> tuple[np.ndarray, float]:
         """Solve the Family of Modes (FOM) QPs and return the best first control.
 
-        Tries 3 mode schedules:
+        Family of Modes, paper sec. 5.2: instead of the 3^N mode-schedule tree
+        (or the MIQP of sec. 5.1), evaluate a small fixed family of schedules,
+        solve one convex QP per schedule, and keep the first control of the
+        minimum-cost one. The three schedules below are exactly the paper's
+        M1/M2/M3 (sec. 5.2, and sec. 6.1):
           M1: slide_up at n=0, stick for n>0
           M2: slide_down at n=0, stick for n>0
           M3: stick for all n
@@ -334,6 +384,13 @@ class PusherSliderMPC:
         schedule: list[int],
     ) -> tuple[np.ndarray, float]:
         """Solve a single QP for a fixed mode schedule.
+
+        Minimises the MPC finite-horizon cost of paper sec. 5 (Eq. 16),
+        J = sum_n (x_n - x*)^T Q (x_n - x*) + u_n^T R u_n + terminal Q_N term,
+        subject to the mode-dependent motion-cone constraints (Eqs. 4-7) and the
+        input bounds |vn|,|vt| <= v_max with vn >= 0. NOTE: the constraints are
+        applied directly in the (nonlinear) current-state frame, not in the
+        nominal-trajectory-linearised form of Eqs. (12)-(15) (see deviation #2).
 
         Decision variables: z = [vn_0, vt_0, ..., vn_{N-1}, vt_{N-1}] (2N,).
 
@@ -475,6 +532,7 @@ class PusherSliderMPC:
         px_body, py_body = pusher_pos_body
         px_a, py_a = self._aligned_contact(px_body, py_body)
 
+        # State x = [q_s^T, p_y]^T (paper Eq. 8): slider pose + tangential contact.
         x0 = np.array([slider_pose[0], slider_pose[1], slider_pose[2], py_a])
         target = np.array([target_pose[0], target_pose[1], target_pose[2], py_a])
 
@@ -575,9 +633,7 @@ if __name__ == "__main__":
 
     # --- Sanity check ---
     print("\n--- Sanity Check: Dynamics at nominal state ---")
-    mpc_check = PusherSliderMPC(
-        slider_dims=(0.08, 0.06), mu_pusher=0.3, contact_face="-y"
-    )
+    mpc_check = PusherSliderMPC(slider_dims=(0.08, 0.06), mu_pusher=0.3, contact_face="-y")
     # For -y face: body contact (0, -0.03) -> aligned contact (-0.03, 0)
     px_a, py_a = mpc_check._aligned_contact(0.0, -0.03)
     print(f"Aligned contact: px_a={px_a:.4f}, py_a={py_a:.4f}")
@@ -639,19 +695,14 @@ if __name__ == "__main__":
 
     # --- Test 1: Nominal ---
     print("\n--- Test 1: Nominal initial condition ---")
-    states, controls = simulate_analytical(
-        mpc, x0_body, target_pose, px_body, n_steps, dt
-    )
+    states, controls = simulate_analytical(mpc, x0_body, target_pose, px_body, n_steps, dt)
 
     final = states[-1]
     y_err = abs(final[1] - y_target)
     theta_err = abs(np.rad2deg(final[2]))
     x_drift = abs(final[0])
 
-    print(
-        f"\nFinal: x={final[0]:.4f}, y={final[1]:.4f}, "
-        f"theta={np.rad2deg(final[2]):.2f} deg"
-    )
+    print(f"\nFinal: x={final[0]:.4f}, y={final[1]:.4f}, theta={np.rad2deg(final[2]):.2f} deg")
     print(f"Errors: y={y_err:.4f}, theta={theta_err:.2f} deg, x_drift={x_drift:.4f}")
     print(f"First 3 controls: {controls[:3].round(4)}")
 
@@ -661,50 +712,32 @@ if __name__ == "__main__":
     vt_max = np.max(np.abs(controls[:, 1]))
     ctrl_ok = vn_max <= v_max + 1e-6 and vt_max <= v_max + 1e-6
 
-    print(
-        f"\ny-convergence (<0.05 m):     {'PASS' if y_ok else 'FAIL'} (err={y_err:.4f})"
-    )
-    print(
-        f"theta-convergence (<5 deg):  {'PASS' if theta_ok else 'FAIL'} "
-        f"(err={theta_err:.2f})"
-    )
+    print(f"\ny-convergence (<0.05 m):     {'PASS' if y_ok else 'FAIL'} (err={y_err:.4f})")
+    print(f"theta-convergence (<5 deg):  {'PASS' if theta_ok else 'FAIL'} (err={theta_err:.2f})")
     print(
         f"Control bounds:              {'PASS' if ctrl_ok else 'FAIL'} "
         f"(vn_max={vn_max:.4f}, vt_max={vt_max:.4f})"
     )
     x_drift_ok = x_drift < 0.05
-    print(
-        f"x-drift (<0.05 m):           {'PASS' if x_drift_ok else 'FAIL'} "
-        f"(drift={x_drift:.4f})"
-    )
+    print(f"x-drift (<0.05 m):           {'PASS' if x_drift_ok else 'FAIL'} (drift={x_drift:.4f})")
 
     # --- Test 2: Perturbed ---
     print("\n--- Test 2: Perturbed (theta0=5 deg, x0=0.02) ---")
     x0_perturbed = np.array([0.02, y_start, np.deg2rad(5.0), py_body_init])
-    states2, controls2 = simulate_analytical(
-        mpc, x0_perturbed, target_pose, px_body, n_steps, dt
-    )
+    states2, controls2 = simulate_analytical(mpc, x0_perturbed, target_pose, px_body, n_steps, dt)
 
     final2 = states2[-1]
     y_err2 = abs(final2[1] - y_target)
     theta_err2 = abs(np.rad2deg(final2[2]))
     x_drift2 = abs(final2[0])
 
-    print(
-        f"Final: x={final2[0]:.4f}, y={final2[1]:.4f}, "
-        f"theta={np.rad2deg(final2[2]):.2f} deg"
-    )
+    print(f"Final: x={final2[0]:.4f}, y={final2[1]:.4f}, theta={np.rad2deg(final2[2]):.2f} deg")
     print(f"Errors: y={y_err2:.4f}, theta={theta_err2:.2f} deg, x_drift={x_drift2:.4f}")
 
     y_ok2 = y_err2 < 0.10
     theta_ok2 = theta_err2 < 10.0
-    print(
-        f"y-convergence (<0.10 m):     {'PASS' if y_ok2 else 'FAIL'} (err={y_err2:.4f})"
-    )
-    print(
-        f"theta-convergence (<10 deg): {'PASS' if theta_ok2 else 'FAIL'} "
-        f"(err={theta_err2:.2f})"
-    )
+    print(f"y-convergence (<0.10 m):     {'PASS' if y_ok2 else 'FAIL'} (err={y_err2:.4f})")
+    print(f"theta-convergence (<10 deg): {'PASS' if theta_ok2 else 'FAIL'} (err={theta_err2:.2f})")
 
     # --- Summary ---
     print("\n" + "=" * 70)
@@ -712,7 +745,5 @@ if __name__ == "__main__":
     print(f"Overall: {'ALL TESTS PASSED' if all_pass else 'SOME TESTS FAILED'}")
     print("=" * 70)
 
-    times, nom_poses = generate_straight_trajectory(
-        y_start, y_target, push_speed=0.05, dt=dt
-    )
+    times, nom_poses = generate_straight_trajectory(y_start, y_target, push_speed=0.05, dt=dt)
     print(f"\nNominal trajectory: {len(times)} waypoints over {times[-1]:.1f} s")

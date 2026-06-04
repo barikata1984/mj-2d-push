@@ -1,20 +1,20 @@
 <mujoco model="stage1_push">
   <!--
-    Stage 1: UR5e pushing a rectangular slider along +Y on a table.
-    Robot base at origin (z=0). Table surface at z=0.3.
+    Stage 1: UR5e + Robotiq 2F-85 pushing a rectangular slider along +Y on a table.
+    Robot base at (0, 0.1, 0.3) on table surface.
     Slider starts near y=0.24, pushed toward y=0.8.
 
-    Dependency: /workspace/assets symlink -> mujoco_menagerie/universal_robots_ur5e/assets/
-    Dependency: /workspace/ur5e_with_pusher.xml (UR5e + pusher tip on wrist_3_link)
+    Dependency: /workspace/assets/ (UR5e + Robotiq mesh files)
+    Dependency: /workspace/ur5e_with_gripper.xml (UR5e + Robotiq 2F-85)
   -->
 
   <compiler angle="radian" autolimits="true"/>
 
-  <option integrator="implicitfast" timestep="0.002" cone="elliptic">
+  <option integrator="implicitfast" timestep="0.002" cone="elliptic" impratio="10">
     <flag warmstart="enable"/>
   </option>
 
-  <include file="ur5e_with_pusher.xml"/>
+  <include file="ur5e_with_gripper.xml"/>
 
   <statistic center="0 0.4 0.35" extent="0.8"/>
 
@@ -56,8 +56,6 @@
     </body>
 
     <!-- Slider: 80x60x30 mm block (Hogan 2016: m=1.05 kg) -->
-    <!-- Sits on table at z=0.3. Center at z=0.315 (half-height=0.015). -->
-    <!-- Initial y: ~0.035m ahead of pusher tip's steady-state y. -->
     <body name="slider" pos="0 0.235 0.315">
       <freejoint name="slider_joint"/>
       <inertial mass="1.05" pos="0 0 0"
@@ -73,49 +71,63 @@
 
     <!-- Top-down camera centered on push area -->
     <camera name="top_down" pos="0 0.5 1.2" xyaxes="1 0 0 0 1 0" fovy="45"/>
-    <!-- Side view: look from +x toward the push line (y-axis) -->
+    <!-- Side view -->
     <camera name="side" pos="0.7 0.5 0.55" xyaxes="0 1 0 -0.25 0 0.97" fovy="60"/>
-    <!-- Tracking camera on slider body -->
+    <!-- Tracking camera on slider -->
     <camera name="slider_track" mode="targetbodycom" target="slider"
       pos="0.35 0.5 0.65" fovy="50"/>
   </worldbody>
 
   <contact>
-    <!-- Exclude robot arm bodies from table and slider contacts.
-         Only pusher_tip should contact slider_geom (via explicit pair below). -->
+    <!-- Robot base sits on table — exclude to prevent jitter -->
     <exclude body1="base" body2="table"/>
-    <exclude body1="shoulder_link" body2="table"/>
-    <exclude body1="upper_arm_link" body2="table"/>
-    <exclude body1="forearm_link" body2="table"/>
+    <!-- Wrist/gripper collision bodies vs table: the conservative collision
+         capsules extend well beyond the visual mesh at table height. Exclude
+         to allow the arm to work at table-surface level. -->
     <exclude body1="wrist_1_link" body2="table"/>
     <exclude body1="wrist_2_link" body2="table"/>
     <exclude body1="wrist_3_link" body2="table"/>
-    <exclude body1="pusher" body2="table"/>
-
-    <exclude body1="base" body2="slider"/>
-    <exclude body1="shoulder_link" body2="slider"/>
-    <exclude body1="upper_arm_link" body2="slider"/>
-    <exclude body1="forearm_link" body2="slider"/>
-    <exclude body1="wrist_1_link" body2="slider"/>
-    <exclude body1="wrist_2_link" body2="slider"/>
-    <exclude body1="wrist_3_link" body2="slider"/>
+    <exclude body1="gripper" body2="table"/>
+    <exclude body1="gripper_base_mount" body2="table"/>
+    <exclude body1="gripper_base" body2="table"/>
+    <exclude body1="gripper_right_driver" body2="table"/>
+    <exclude body1="gripper_right_coupler" body2="table"/>
+    <exclude body1="gripper_right_spring_link" body2="table"/>
+    <exclude body1="gripper_right_follower" body2="table"/>
+    <exclude body1="gripper_right_pad" body2="table"/>
+    <exclude body1="gripper_left_driver" body2="table"/>
+    <exclude body1="gripper_left_coupler" body2="table"/>
+    <exclude body1="gripper_left_spring_link" body2="table"/>
+    <exclude body1="gripper_left_follower" body2="table"/>
+    <exclude body1="gripper_left_pad" body2="table"/>
 
     <!-- Slider-table: mu=0.35, condim=4 for torsional friction (Hogan 2016) -->
     <pair geom1="slider_geom" geom2="table_surface" condim="4"
       friction="0.35 0.35 0.005 0.001 0.001"
       solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
-    <!-- Pusher-slider: mu=0.3, condim=4 (Hogan 2016) -->
-    <pair geom1="pusher_tip" geom2="slider_geom" condim="4"
+
+    <!-- Gripper pad vs slider: mu=0.3, condim=4 (Hogan 2016 pusher-slider) -->
+    <pair geom1="gripper_right_pad1" geom2="slider_geom" condim="4"
       friction="0.3 0.3 0.005 0.001 0.001"
-      solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
+      solref="0.004 1" solimp="0.95 0.99 0.001 0.5 2"/>
+    <pair geom1="gripper_right_pad2" geom2="slider_geom" condim="4"
+      friction="0.3 0.3 0.005 0.001 0.001"
+      solref="0.004 1" solimp="0.95 0.99 0.001 0.5 2"/>
+    <pair geom1="gripper_left_pad1" geom2="slider_geom" condim="4"
+      friction="0.3 0.3 0.005 0.001 0.001"
+      solref="0.004 1" solimp="0.95 0.99 0.001 0.5 2"/>
+    <pair geom1="gripper_left_pad2" geom2="slider_geom" condim="4"
+      friction="0.3 0.3 0.005 0.001 0.001"
+      solref="0.004 1" solimp="0.95 0.99 0.001 0.5 2"/>
   </contact>
 
   <keyframe>
-    <!-- Ready: arm at PD steady state, slider just ahead of pusher tip with ~1mm gap.
-         ctrl differs from qpos due to gravity sag compensation. -->
+    <!-- qpos: 6 arm + 8 gripper (closed) + 7 slider_freejoint = 21 values
+         ctrl: 6 arm + 1 gripper (255=closed) = 7 values -->
     <key name="ready"
-      qpos="-1.7912 -0.8219 2.7650 -1.7860 -2.8822 0
+      qpos="-0.7762 -0.9240 2.5775 -1.6301 -2.5218 -0.0000
+             0.782160 0.000500 0.780949 -0.757827 0.782159 0.000503 0.780887 -0.758059
              0 0.235 0.315 1 0 0 0"
-      ctrl="-1.7911 -0.8270 2.7665 -1.7855 -2.8827 0"/>
+      ctrl="-0.7762 -0.9355 2.5787 -1.6280 -2.5217 -0.0000 255"/>
   </keyframe>
 </mujoco>

@@ -134,10 +134,10 @@ def main() -> None:
     print("\nClosing gripper via simulation...")
     gripper_qpos = close_gripper_sim(m, d)
 
-    # Target: pinch site just behind slider's -y face
-    slider_y = 0.235
+    # Target: pinch site just behind slider's -y face (slider on the work surface)
+    slider_y = 0.5
     slider_half_b = 0.03
-    target_tip = np.array([0.0, slider_y - slider_half_b - 0.001, 0.315])
+    target_tip = np.array([0.0, slider_y - slider_half_b - 0.001, 0.342])
     print(f"\nTarget tip position: {target_tip}")
 
     # Step 2: Multi-start IK
@@ -212,7 +212,7 @@ def main() -> None:
     # Output keyframe strings
     # qpos = IK solution (FK gives exact target position at t=0)
     # ctrl = gravity-compensated setpoint (minimizes initial transient)
-    slider_qpos = f"0 {slider_y} 0.315 1 0 0 0"
+    slider_qpos = f"0 {slider_y} 0.342 1 0 0 0"
     arm_qpos_str = " ".join(f"{v:.4f}" for v in best_q)
     gripper_qpos_str = " ".join(f"{v:.6f}" for v in gripper_qpos)
     ctrl_arm_str = " ".join(f"{v:.4f}" for v in ctrl_arm)

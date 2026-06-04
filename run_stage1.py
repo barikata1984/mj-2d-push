@@ -50,8 +50,9 @@ class Config:
 
     # Push parameters
     push_speed: float = 0.03
-    y_start: float = 0.235
-    y_goal: float = 0.78
+    # World y; base-frame (0, 0.4) -> (0, 0.8) maps to world y 0.5 -> 0.9 on the work surface.
+    y_start: float = 0.5
+    y_goal: float = 0.9
     max_sim_time: float = 30.0
 
     # MPC parameters
@@ -115,6 +116,33 @@ def get_jacobian(m: mujoco.MjModel, d: mujoco.MjData, site_id: int) -> np.ndarra
     jacp = np.zeros((3, m.nv))
     mujoco.mj_jacSite(m, d, jacp, None, site_id)
     return jacp[:, :6]
+
+
+# Desired tool0 (attachment_site) orientation: +x -> world +x, +z -> world -z (straight
+# down), so the closed gripper is a vertical pusher with its finger axis perpendicular to
+# the push direction. Held by the IK layer; the MPC is unchanged and purely 2D.
+R_TOOL0_DES = np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])
+ORI_GAIN = 2.0
+
+
+def orientation_error(d: mujoco.MjData, site_id: int) -> np.ndarray:
+    """World-frame axis-angle rotation driving the site toward R_TOOL0_DES."""
+    quat = np.zeros(4)
+    r_err = R_TOOL0_DES @ d.site_xmat[site_id].reshape(3, 3).T
+    mujoco.mju_mat2Quat(quat, r_err.flatten())
+    n = np.linalg.norm(quat[1:])
+    return quat[1:] / n * 2 * np.arctan2(n, quat[0]) if n > 1e-9 else np.zeros(3)
+
+
+def get_jacobian6(
+    m: mujoco.MjModel, d: mujoco.MjData, pos_site: int, ori_site: int
+) -> np.ndarray:
+    """Stacked 6x6 arm Jacobian: translation of pos_site + rotation of ori_site."""
+    jacp = np.zeros((3, m.nv))
+    jacr = np.zeros((3, m.nv))
+    mujoco.mj_jacSite(m, d, jacp, None, pos_site)
+    mujoco.mj_jacSite(m, d, None, jacr, ori_site)
+    return np.vstack([jacp[:, :6], jacr[:, :6]])
 
 
 # ---------------------------------------------------------------------------
@@ -236,18 +264,21 @@ def move_tip_to(
     tol: float = 0.001,
 ) -> np.ndarray:
     substeps = int(cfg.mpc_dt / m.opt.timestep)
+    tool0_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "attachment_site")
     for _ in range(max_steps):
         mujoco.mj_forward(m, d)
         tip = d.site_xpos[tip_site_id].copy()
-        err = target_pos - tip
-        if np.linalg.norm(err) < tol:
+        perr = target_pos - tip
+        oerr = orientation_error(d, tool0_site_id)
+        if np.linalg.norm(perr) < tol and np.linalg.norm(oerr) < 0.01:
             break
-        step = err * cfg.ik_gain
-        step_norm = np.linalg.norm(step)
-        if step_norm > cfg.ik_max_step:
-            step *= cfg.ik_max_step / step_norm
-        J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ step
+        pstep = perr * cfg.ik_gain
+        pn = np.linalg.norm(pstep)
+        if pn > cfg.ik_max_step:
+            pstep *= cfg.ik_max_step / pn
+        ostep = np.clip(oerr * ORI_GAIN, -0.1, 0.1)
+        J = get_jacobian6(m, d, tip_site_id, tool0_site_id)
+        dq = damped_pinv(J, cfg.damping) @ np.concatenate([pstep, ostep])
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
         d.ctrl[6] = 255  # keep gripper closed
@@ -299,6 +330,7 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
     d = mujoco.MjData(m)
 
     tip_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "gripper_pinch")
+    tool0_site_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "attachment_site")
     slider_body_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "slider")
     key_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "ready")
     pad_geom_ids = [
@@ -441,8 +473,11 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
         z_error = tip_z_ref - tip_pos[2]
         v_des_3d = np.array([v_world_xy[0], v_world_xy[1], 5.0 * z_error])
 
-        J = get_jacobian(m, d, tip_site_id)
-        dq = damped_pinv(J, cfg.damping) @ (v_des_3d * cfg.mpc_dt)
+        # Hold tool0 vertical (R_TOOL0_DES) while executing the MPC's 2D push velocity.
+        omega = ORI_GAIN * orientation_error(d, tool0_site_id)
+        v6 = np.concatenate([v_des_3d, omega])
+        J = get_jacobian6(m, d, tip_site_id, tool0_site_id)
+        dq = damped_pinv(J, cfg.damping) @ (v6 * cfg.mpc_dt)
         ctrl = ctrl + dq
         d.ctrl[:6] = ctrl
         d.ctrl[6] = 255  # keep gripper closed

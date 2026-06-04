@@ -25,8 +25,8 @@ logs/
 # MuJoCo menagerie (sparse clone, not vendored)
 mujoco_menagerie/
 
-# Simulation results — frame images are large; keep data/video/plots only
-results/*/pics/
+# Simulation results (regenerable)
+results/
 
 # Symlinks to external assets
 assets

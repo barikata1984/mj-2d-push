@@ -361,19 +361,25 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
 
     renderer = FrameRenderer(m, cfg, pics_dir)
 
+    # gripper_pinch sits PINCH_TO_PAD_FRONT behind the closed pad front face (the
+    # surface that actually contacts the slider). The keyframe starts the pad ~7 mm
+    # clear of the slider face, so settling leaves the slider undisturbed.
+    PINCH_TO_PAD_FRONT = 0.011  # measured at closed + vertical pose (y 0.469->0.480)
+
     # --- Phase -1: Gravity settle ---
     print("\n--- Phase -1: Gravity settle (2s) ---")
     settle_steps = int(2.0 / m.opt.timestep)
     for _ in range(settle_steps):
         mujoco.mj_step(m, d)
     mujoco.mj_forward(m, d)
-    tip_settled = d.site_xpos[tip_site_id].copy()
-    print(f"After settle: tip={tip_settled}")
+    slider_pos_init, _ = slider_pose_from_data(d, slider_body_id)
+    slider_face_y = slider_pos_init[1] - 0.03
+    print(f"After settle: tip={d.site_xpos[tip_site_id].copy()}, slider={slider_pos_init}")
 
     # --- Phase 0: Approach ---
-    slider_face_y = slider_pos_init[1] - 0.03
+    # Stop the pad front 0.5 mm short of the slider face for clean, light contact.
     approach_target = np.array(
-        [slider_pos_init[0], slider_face_y - 0.0005, slider_pos_init[2]]
+        [slider_pos_init[0], slider_face_y - PINCH_TO_PAD_FRONT - 0.0005, slider_pos_init[2]]
     )
     print(f"\n--- Phase 0: Approach (tip -> {approach_target}) ---")
     ctrl = move_tip_to(
@@ -445,7 +451,14 @@ def run(cfg: Config | None = None) -> tuple[Log, Path]:
             log.target_y.append(cfg.y_goal)
             break
 
-        pusher_body_clamped = np.array([np.clip(pusher_body[0], -0.038, 0.038), -0.03])
+        # The closed gripper is mechanically symmetric and aims to push through the
+        # slider centerline, so the intended tangential contact offset is ~0. Measuring
+        # it from gripper_pinch (≈40 mm behind the contact along the face normal) leaks
+        # sin(theta)*standoff into px when the slider rotates; that spurious off-center
+        # offset makes the MPC predict straight pushing adds +theta and collapse to u=0.
+        # Feed the intended centered contact instead. Lateral drift is still corrected
+        # via the slider-x state vs target.
+        pusher_body_clamped = np.array([0.0, -0.03])
 
         target_y_now = min(
             slider_pos[1] + cfg.push_speed * cfg.mpc_dt * cfg.mpc_horizon, cfg.y_goal

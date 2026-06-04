@@ -13,13 +13,14 @@
 - [x] Hogan 2016 FOM ベース MPC コントローラ実装
 - [x] 統合シミュレーション: y=0.2→0.8 直線プッシュ動作確認
 - [x] 動画出力 + データ保存パイプライン(`results/` ディレクトリ構造)
-- [ ] 座標系整理: base link y 軸方向の符号(現在ワールド +y, base -y)
-- [ ] Stage 0 と Δθ 傾向の突き合わせ
-- [ ] CoM オフセット条件 A/B/C の MuJoCo 上での対照実験
-- [ ] 接触パラメータ感度分析(`solref`/`solimp`/`friction`)
+- [x] 座標系整理: base link y 軸方向の符号を `run_stage1.py` に文書化. base quat は維持, 制御は全てワールド座標で動作
+- [x] ロボットベースをテーブル上 (z=0.3) に再配置, キーフレーム IK 再計算
+- [x] Stage 0 と Δθ 傾向の突き合わせ (`experiments/exp_dtheta_comparison.py`)
+- [x] CoM オフセット条件 A/B/C の MuJoCo 上での対照実験 (`experiments/exp_com_abc.py`)
+- [x] 接触パラメータ感度分析 (`experiments/exp_contact_sensitivity.py`)
 
 ## Stage 1+: 拡張
 
-- [ ] MPC 制御条件での軌道追従評価(RMS 誤差, 制御努力)
-- [ ] 圧力分布非一様性の影響検証
-- [ ] 準静的条件の限界速度調査
+- [x] MPC 制御条件での軌道追従評価 (`experiments/exp_tracking_eval.py`)
+- [x] 圧力分布非一様性の影響検証 (`experiments/exp_pressure_distribution.py`)
+- [x] 準静的条件の限界速度調査 (`experiments/exp_speed_limit.py`)

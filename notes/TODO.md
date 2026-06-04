@@ -43,5 +43,5 @@
 - [x] 鉛直 pusher での 2D 押し成功: base (0,0.4)→(0,0.8) 到達, 接触維持, tool0 傾き 0.03°, 暴走・机貫通なし
 - [x] ゴールマーカー (赤) を作業板上面に追加
 - [x] 標準実験動画フォーマット確立 (`render_grid_video.py`, 2x2 グリッド overview/top/front/side)
-- [ ] 残ドリフト抑制: x −7cm・θ 13.7° (MPC 接触点が gripper_pinch 中心線を仮定, 実接触は閉じた指前面とずれる)
-- [ ] `compute_keyframe.py` を 6-DOF tool-down IK 生成に更新 (現在は位置のみで scene の tool-down keyframe と非同期)
+- [x] 残ドリフト抑制 (2026-06-04): x −70.8mm→−1.5mm, θ 13.65°→−0.01°. 真因は 2 点 — (1) MPC に渡す接線接触座標 px_body が pinch 経由で `sin(θ)·法線スタンドオフ` に汚染され, わずかな偏心が straight push に +θ トルクを誤予測させ θ>5° で QP が u=0 に collapse → 対称押しの意図通り px_body=0 を MPC に供給. (2) keyframe が pad 前面を 10mm 事前貫入し settle でスライダを 11cm ラム → 再接触が斜めになり θ スパイク → keyframe を後退 (pinch 0.469→0.452) して貫入解消
+- [ ] `compute_keyframe.py` を 6-DOF tool-down IK 生成に更新 (現在は位置のみ. 2026-06-04 の retract keyframe は `run_stage1` の IK を流用したインライン script で再計算したもので, compute_keyframe.py 自体は依然非同期)

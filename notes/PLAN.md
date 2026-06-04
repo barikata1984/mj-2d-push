@@ -24,10 +24,10 @@ session_summary.md §3.7 のラダーに従う:
 - **作業板 (work surface)** をテーブル上に追加し, スライダを板上で押す構成に
 - **tool0 鉛直下向きの vertical pusher** 化 (6-DOF 姿勢 IK + 実行層の姿勢保持). 閉じた 2 指の対称面を押し方向に直交させ接触を対称化. MPC (Hogan) 本体は不変
 - 結果: base (0,0.4)→(0,0.8) の 2D 押しが安定成功 (接触維持・姿勢保持・暴走なし)
+- 残ドリフト解消 (2026-06-04): x −1.5mm, θ −0.01° のほぼ直進押しを達成. 真因は接線接触座標の汚染 (px_body に法線スタンドオフが漏れる) による MPC の collapse と, keyframe 事前貫入による settle ラム. それぞれ px_body=0 供給と keyframe 後退で対処
 
 残課題:
-- 残ドリフト: x −7cm, θ 13.7°. MPC 接触点 (gripper_pinch 中心線) と実接触点 (閉じた指前面) の不整合が主因
-- `compute_keyframe.py` を tool-down 6-DOF 生成に同期する
+- `compute_keyframe.py` を tool-down 6-DOF 生成に同期する (現状の retract keyframe はインライン IK で生成)
 
 ## Stage 3 への移行条件
 

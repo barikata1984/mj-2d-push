@@ -102,6 +102,7 @@
     <exclude body1="wrist_1_link" body2="table"/>
     <exclude body1="wrist_2_link" body2="table"/>
     <exclude body1="wrist_3_link" body2="table"/>
+    <exclude body1="ft300s" body2="table"/>
     <exclude body1="gripper" body2="table"/>
     <exclude body1="gripper_base_mount" body2="table"/>
     <exclude body1="gripper_base" body2="table"/>
@@ -120,6 +121,7 @@
     <exclude body1="wrist_1_link" body2="work_surface"/>
     <exclude body1="wrist_2_link" body2="work_surface"/>
     <exclude body1="wrist_3_link" body2="work_surface"/>
+    <exclude body1="ft300s" body2="work_surface"/>
     <exclude body1="gripper" body2="work_surface"/>
     <exclude body1="gripper_base_mount" body2="work_surface"/>
     <exclude body1="gripper_base" body2="work_surface"/>
@@ -163,9 +165,9 @@
     <!-- qpos: 6 arm + 8 gripper (closed) + 7 slider_freejoint = 21 values
          ctrl: 6 arm + 1 gripper (255=closed) = 7 values -->
     <key name="ready"
-      qpos="1.1803 -1.6653 2.4917 -2.3972 -1.5708 -0.3905
-             0.782171 0.000500 0.780958 -0.757842 0.782169 0.000503 0.780896 -0.758075
+      qpos="1.1803 -1.7533 2.4421 -2.2595 -1.5708 -0.3905
+             0.782203 0.000500 0.780981 -0.757906 0.782202 0.000503 0.780925 -0.758117
              0 0.5 0.342 1 0 0 0"
-      ctrl="1.1803 -1.6708 2.4842 -2.4020 -1.5708 -0.3905 255"/>
+      ctrl="1.1803 -1.7583 2.4331 -2.2649 -1.5708 -0.3905 255"/>
   </keyframe>
 </mujoco>

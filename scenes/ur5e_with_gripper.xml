@@ -71,6 +71,9 @@
     <material class="ur5e" name="linkgray" rgba="0.82 0.82 0.82 1"/>
     <material class="ur5e" name="urblue" rgba="0.49 0.678 0.8 1"/>
 
+    <!-- FT300-S material -->
+    <material name="ft300s_gray" rgba="0.3 0.3 0.3 1"/>
+
     <!-- Robotiq 2F-85 materials -->
     <material name="gripper_metal" rgba="0.58 0.58 0.58 1"/>
     <material name="gripper_silicone" rgba="0.1882 0.1882 0.1882 1"/>
@@ -98,6 +101,9 @@
     <mesh file="wrist2_1.obj"/>
     <mesh file="wrist2_2.obj"/>
     <mesh file="wrist3.obj"/>
+
+    <!-- FT300-S mesh (STEP units are mm → scale to m) -->
+    <mesh name="ft300s" file="ft300s.stl" scale="0.001 0.001 0.001"/>
 
     <!-- Robotiq 2F-85 meshes -->
     <mesh class="2f85" name="gripper_base_mount" file="gripper_base_mount.stl"/>
@@ -164,9 +170,15 @@
                   <geom class="eef_collision" pos="0 0.08 0" quat="1 1 0 0" size="0.04 0.02"/>
                   <site name="attachment_site" pos="0 0.1 0" quat="-1 1 0 0"/>
 
-                  <!-- Robotiq 2F-85 gripper mounted at tool flange.
-                       quat="1 -1 0 0" = R_x(-90 deg): gripper +Z -> wrist +Y (tool axis) -->
-                  <body name="gripper" pos="0 0.1 0" quat="1 -1 0 0" childclass="2f85">
+                  <!-- FT300-S force/torque sensor between flange and gripper.
+                       quat="1 -1 0 0" = R_x(-90 deg): sensor +Z -> wrist +Y (tool axis).
+                       Sensor mesh Z spans 0-42 mm; mounting-face offset ~34 mm. -->
+                  <body name="ft300s" pos="0 0.1 0" quat="1 -1 0 0">
+                    <inertial mass="0.30" pos="0 0 0.017" diaginertia="0.000211 0.000134 0.000134"/>
+                    <geom type="mesh" mesh="ft300s" material="ft300s_gray" contype="0" conaffinity="0" group="2"/>
+                    <geom name="ft300s_collision" type="cylinder" size="0.0375 0.017" pos="0 0 0.017" group="3"/>
+                    <site name="ft300s_sensor" pos="0 0 0.017"/>
+                    <body name="gripper" pos="0 0 0.034" childclass="2f85">
                     <body name="gripper_base_mount" pos="0 0 0.007">
                       <geom class="gripper_visual" mesh="gripper_base_mount" material="gripper_black"/>
                       <geom class="gripper_collision" mesh="gripper_base_mount"/>
@@ -209,10 +221,10 @@
                             <geom class="gripper_visual" mesh="gripper_follower" material="gripper_black"/>
                             <geom class="gripper_collision" mesh="gripper_follower"/>
                             <body name="gripper_right_pad" pos="0 -0.0189 0.01352">
-                              <geom class="pad_box1" name="gripper_right_pad1"/>
-                              <geom class="pad_box2" name="gripper_right_pad2"/>
                               <inertial mass="0.0035" pos="0 -0.0025 0.0185" quat="0.707107 0 0 0.707107"
                                 diaginertia="4.73958e-07 3.64583e-07 1.23958e-07"/>
+                              <geom class="pad_box1" name="gripper_right_pad1"/>
+                              <geom class="pad_box2" name="gripper_right_pad2"/>
                               <geom class="gripper_visual" mesh="gripper_pad"/>
                               <body name="gripper_right_silicone_pad">
                                 <geom class="gripper_visual" mesh="gripper_silicone_pad" material="gripper_black"/>
@@ -265,6 +277,7 @@
                         </body>
                       </body>
                     </body>
+                  </body>
                   </body>
                 </body>
               </body>

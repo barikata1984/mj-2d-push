@@ -69,6 +69,7 @@ scipy = ">=1.17.1,<2"
 matplotlib = ">=3.10.9,<4"
 ffmpeg = ">=8.1.1,<9"
 pillow = ">=12.2.0,<13"
+ocp = ">=7.9.3.1,<8"
 
 [pypi-dependencies]
 # Typed CLI generated from the SimConfig dataclasses (scripts/run_push.py).

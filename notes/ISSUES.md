@@ -15,6 +15,18 @@
 - 解消するなら: 公称軌道まわりの線形化 (A_j(t),B_j(t); paper §4.6) を実装し,
   off-center 接触を復元して `experiments/exp_tracking_eval.py` で再評価する.
 
+## ラウンドフィンガー STL の MuJoCo 取り付けで座標系・原点がずれる
+
+Onshape でエクスポートした `tip;round,finger.stl` を MuJoCo のグリッパーに取り付ける際, 2 つの問題が発生:
+
+1. **座標系流儀の不一致**: Onshape は Y-up (OpenGL 流儀), MuJoCo/ROS は Z-up. STL 頂点に Y-up が焼き付いているため, body に quat="0.7071 -0.7071 0 0" (Rx(-90°)) の補正が必要
+2. **MuJoCo mesh geom の自動フレーム調整**: メッシュ geom をコンパイルする際, 凸包の重心 + 主慣性軸に合わせて `geom_pos` / `geom_quat` が自動書き換えされる (`mesh_pos` / `mesh_quat` に保存). XML で `pos="0 0 0"` と書いても, コンパイル後は数 mm のオフセットと ~90° の回転が加わる. これにより CAD 上の原点と MuJoCo 上の geom 原点が一致しない
+
+対処候補:
+- Onshape エクスポート時に mate connector で Z-up に合わせてから STL 出力
+- geom に逆 pos/quat を設定して自動調整を打ち消す (検証済み: 姿勢は打ち消し可能, 位置も加算的に打ち消し可能)
+- MuJoCo の `<compiler>` オプションで自動調整を無効化できるか調査
+
 ## MuJoCo 接触ソルバ由来の θ 振動
 
 スライダの θ に ±0.3° 程度の高周波振動が観測される. 準静的解析(Stage 0)では θ は滑らかに推移するため, これは MuJoCo の接触力解法に起因する.

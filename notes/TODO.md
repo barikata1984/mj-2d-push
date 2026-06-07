@@ -58,6 +58,15 @@
 - [x] 検証: 新 CLI で full sim が現行同等結果, keyframe 再現, grid 動画生成, pytest pass, ruff clean
 - [x] README をプロジェクト向けに全面書き換え (クローン→コンテナ→`setup_assets.sh`→push 手順)
 
+## FT300-S + カスタムフィンガー統合
+
+- [x] FT300-S STEP からケーブル除外メッシュ生成 (OCP) → STL エクスポート
+- [x] FT300-S body を `wrist_3_link` と `gripper` の間に挿入
+- [x] 接触除外・キーフレーム再計算・シミュレーション検証
+- [ ] ラウンドフィンガー (`tip;round,finger.stl`) のグリッパーへの取り付け
+  - Onshape Y-up → MuJoCo Z-up 座標変換の解決
+  - MuJoCo mesh geom の自動 pos/quat 書き換えへの対処
+
 ## MPC の論文忠実度 (2026-06-04)
 
 - [x] Hogan WAFR2016 本文と `controllers/mpc.py` を突き合わせ, 各部に論文の節・式番号を注釈
